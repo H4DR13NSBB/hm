@@ -1748,7 +1748,7 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 /* ---------- gift boxes ----------
    One box: lid + body, sized in em so the same box works small (board) and big (opening). */
 .topbar-actions { display: flex; align-items: center; gap: 4px; }
-#gift-btn { position: relative; font-size: 1.05rem; border-color: transparent; background: transparent; }
+#gift-btn { position: relative; width: 40px; height: 40px; min-height: 0; padding: 0; display: grid; place-items: center; color: var(--muted); border-color: transparent; background: transparent; }
 #gift-btn .tab-badge { top: -4px; left: auto; right: -6px; }
 
 .gbox {
