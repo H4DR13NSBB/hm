@@ -6,20 +6,22 @@
 // the recipient simply can't read the row until it has arrived.
 // =============================================================================
 
+import { tr, locale } from "./i18n.js";
+
 const $ = (id) => document.getElementById(id);
 const DAY = 86_400_000;
 const POLL_MS = 60_000; // arrivals aren't a database event, so check now and then
 
 export const STAMPS = [
-  { id: "heart",  emoji: "💌", label: "Love",       value: "1.20", color: "#d9506a" },
-  { id: "alps",   emoji: "🏔️", label: "Alpine",     value: "1.00", color: "#4b7bb5" },
-  { id: "snail",  emoji: "🐌", label: "Snail mail", value: "0.50", color: "#6f9a4f" },
-  { id: "tulip",  emoji: "🌷", label: "Spring",     value: "0.90", color: "#c9628e" },
-  { id: "sun",    emoji: "🌞", label: "Summer",     value: "1.10", color: "#e39a2d" },
-  { id: "moon",   emoji: "🌙", label: "Night post", value: "1.40", color: "#3b3f7a" },
-  { id: "coffee", emoji: "☕", label: "Café",       value: "0.80", color: "#8a5a3c" },
-  { id: "wave",   emoji: "🌊", label: "Seaside",    value: "1.30", color: "#2a8fa3" },
-  { id: "cat",    emoji: "🐈", label: "Cat post",   value: "2.00", color: "#8467bf" },
+  { id: "heart",  emoji: "💌", label: tr("Love"),       value: "1.20", color: "#d9506a" },
+  { id: "alps",   emoji: "🏔️", label: tr("Alpine"),     value: "1.00", color: "#4b7bb5" },
+  { id: "snail",  emoji: "🐌", label: tr("Snail mail"), value: "0.50", color: "#6f9a4f" },
+  { id: "tulip",  emoji: "🌷", label: tr("Spring"),     value: "0.90", color: "#c9628e" },
+  { id: "sun",    emoji: "🌞", label: tr("Summer"),     value: "1.10", color: "#e39a2d" },
+  { id: "moon",   emoji: "🌙", label: tr("Night post"), value: "1.40", color: "#3b3f7a" },
+  { id: "coffee", emoji: "☕", label: tr("Café"),       value: "0.80", color: "#8a5a3c" },
+  { id: "wave",   emoji: "🌊", label: tr("Seaside"),    value: "1.30", color: "#2a8fa3" },
+  { id: "cat",    emoji: "🐈", label: tr("Cat post"),   value: "2.00", color: "#8467bf" },
 ];
 const STAMP_COLORS = [...new Set(STAMPS.map((s) => s.color))];
 const CUSTOM_KEY = "duo-mail-stamp"; // last home-made stamp (not the picture), to reuse next time
@@ -43,11 +45,11 @@ function inkFor(hex) {
 function fmtDate(ts) {
   const d = new Date(ts);
   const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) });
+  return d.toLocaleDateString(locale, { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) });
 }
 function since(ts) {
   const d = Math.floor((Date.now() - Date.parse(ts)) / DAY);
-  return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`;
+  return d <= 0 ? tr("today") : d === 1 ? tr("yesterday") : tr("{n} days ago", { n: d });
 }
 const daysInPost = (c) => Math.max(1, Math.round((Date.parse(c.delivers_at) - Date.parse(c.sent_at)) / DAY));
 
@@ -77,7 +79,7 @@ function stampEl(spec) {
 
 function postmarkEl(ts) {
   const d = new Date(ts);
-  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }).toUpperCase();
+  const day = d.toLocaleDateString(locale, { day: "numeric", month: "short" }).toUpperCase();
   const wrap = el("div", "pc-postmark");
   const waves = [30, 45, 60, 75].map((y) => `<path d="M104 ${y}q12 -7 24 0t24 0t24 0t24 0t24 0t24 0"/>`).join("");
   wrap.innerHTML = `<svg viewBox="0 0 260 110" aria-hidden="true">
@@ -108,7 +110,7 @@ function fillFront(face, side, { hint = false } = {}) {
   if (text && !side.img) {
     parts.push(el("div", "pc-big " + sizeTier(text.length, [[14, "xl"], [40, "l"], [100, "m"], [Infinity, "s"]]), text));
   }
-  if (!parts.length && hint) parts.push(el("div", "pc-hint", "Add a photo or write something big"));
+  if (!parts.length && hint) parts.push(el("div", "pc-hint", tr("Add a photo or write something big")));
   face.replaceChildren(...parts);
 }
 
@@ -128,14 +130,14 @@ function fillBack(face, side, { stamp, toName, postmark, hint = false }) {
     msg.append(t);
   }
   if (side.img && !text) msg.classList.add("only-img");
-  if (!side.img && !text && hint) msg.append(el("div", "pc-msg-text hint", "Write your message here…"));
+  if (!side.img && !text && hint) msg.append(el("div", "pc-msg-text hint", tr("Write your message here…")));
 
   const stampWrap = el("div", "pc-stamp");
   stampWrap.append(stampEl(stamp));
   const addr = el("div", "pc-addr");
-  addr.append(el("span", "", toName), el("span", "", "Duo mailbox"), el("span"));
+  addr.append(el("span", "", toName), el("span", "", tr("Duo mailbox")), el("span"));
 
-  face.replaceChildren(el("div", "pc-back-title", "POST CARD"), msg, el("div", "pc-divider"), stampWrap, addr);
+  face.replaceChildren(el("div", "pc-back-title", tr("POST CARD")), msg, el("div", "pc-divider"), stampWrap, addr);
   if (postmark) face.append(postmarkEl(postmark));
 }
 
@@ -175,7 +177,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
   try { if (localStorage.getItem("duo-mail-seg") === "sent") seg = "sent"; } catch {}
 
   const meId = () => getMe()?.id;
-  const nameOf = (id) => getMembers().find((m) => m.user_id === id)?.display_name ?? "Someone";
+  const nameOf = (id) => getMembers().find((m) => m.user_id === id)?.display_name ?? tr("Someone");
   const recipient = () => getMembers().find((m) => m.user_id !== meId());
   const delivered = (c) => Date.parse(c.delivers_at) <= Date.now();
   const visible = (c) => c.from_id === meId() || (c.to_id === meId() && delivered(c));
@@ -237,7 +239,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
       sb.rpc("mail_in_transit"),
     ]);
     if (c.error) {
-      if (!loaded) toast("Couldn't load the mailbox: " + c.error.message);
+      if (!loaded) toast(tr("Couldn't load the mailbox: ") + c.error.message);
       return;
     }
     cards.clear();
@@ -254,8 +256,8 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     fresh.forEach((c) => announced.add(c.id));
     if (!loaded) return; // first load: the badge says enough
     const unread = fresh.filter((c) => !c.read_at);
-    if (unread.length === 1) toast(`📬 A postcard from ${nameOf(unread[0].from_id)} just arrived!`);
-    else if (unread.length > 1) toast(`📬 ${unread.length} postcards just arrived!`);
+    if (unread.length === 1) toast(tr("📬 A postcard from {name} just arrived!", { name: nameOf(unread[0].from_id) }));
+    else if (unread.length > 1) toast(tr("📬 {n} postcards just arrived!", { n: unread.length }));
   }
 
   // ---------- mailbox ----------
@@ -266,7 +268,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
 
     for (const b of $("mail-segs").querySelectorAll("[data-mseg]")) {
       b.setAttribute("aria-selected", String(b.dataset.mseg === seg));
-      if (b.dataset.mseg === "inbox") b.textContent = unread ? `Inbox (${unread})` : "Inbox";
+      if (b.dataset.mseg === "inbox") b.textContent = unread ? `${tr("Inbox")} (${unread})` : tr("Inbox");
     }
 
     const showTransit = seg === "inbox" && inTransit > 0;
@@ -274,8 +276,8 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     if (showTransit) {
       const from = recipient()?.display_name ?? "someone";
       $("mail-transit-text").textContent = inTransit === 1
-        ? `A postcard from ${from} is somewhere in the post…`
-        : `${inTransit} postcards from ${from} are somewhere in the post…`;
+        ? tr("A postcard from {name} is somewhere in the post…", { name: from })
+        : tr("{n} postcards from {name} are somewhere in the post…", { n: inTransit, name: from });
     }
 
     const list = seg === "inbox" ? inbox() : sent();
@@ -284,8 +286,8 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     $("mail-empty").hidden = !!list.length;
     $("mail-empty-icon").textContent = seg === "inbox" ? "📭" : "✉️";
     $("mail-empty-text").textContent = seg === "inbox"
-      ? (meId() ? `Your mailbox is empty. Postcards from ${recipient()?.display_name ?? "your person"} land here.` : "")
-      : "You haven't posted anything yet. Tap Write a postcard.";
+      ? (meId() ? tr("Your mailbox is empty. Postcards from {name} land here.", { name: recipient()?.display_name ?? tr("your person") }) : "")
+      : tr("You haven't posted anything yet. Tap Write a postcard.");
     $("mail-demo").hidden = !sb.isDemo || !meId();
   }
 
@@ -302,15 +304,15 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
 
     const meta = el("div", "mail-meta");
     if (isInbox) {
-      if (!c.read_at) { b.classList.add("unread"); thumb.append(el("span", "mail-new", "New")); }
-      meta.append(el("b", "", `From ${nameOf(c.from_id)}`), el("span", "muted", `Arrived ${fmtDate(c.delivers_at)}`));
+      if (!c.read_at) { b.classList.add("unread"); thumb.append(el("span", "mail-new", tr("New"))); }
+      meta.append(el("b", "", tr("From {name}", { name: nameOf(c.from_id) })), el("span", "muted", tr("Arrived {date}", { date: fmtDate(c.delivers_at) })));
     } else if (!delivered(c)) {
       card.classList.add("in-transit");
-      thumb.append(el("span", "pc-ribbon", "🚚 In the post"));
-      meta.append(el("b", "", `To ${nameOf(c.to_id)}`), el("span", "muted", `Posted ${since(c.sent_at)}`));
+      thumb.append(el("span", "pc-ribbon", tr("🚚 In the post")));
+      meta.append(el("b", "", tr("To {name}", { name: nameOf(c.to_id) })), el("span", "muted", tr("Posted {when}", { when: since(c.sent_at) })));
     } else {
-      meta.append(el("b", "", `To ${nameOf(c.to_id)}`),
-        el("span", "muted", `Arrived ${fmtDate(c.delivers_at)} · ${c.read_at ? "read ✓" : "not opened yet"}`));
+      meta.append(el("b", "", tr("To {name}", { name: nameOf(c.to_id) })),
+        el("span", "muted", `${tr("Arrived {date}", { date: fmtDate(c.delivers_at) })} · ${c.read_at ? tr("read ✓") : tr("not opened yet|card")}`));
     }
     b.append(thumb, meta);
     b.addEventListener("click", () => openViewer(c));
@@ -327,7 +329,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
 
   $("mail-demo").addEventListener("click", async () => {
     const n = await sb.demoDeliverMail?.();
-    toast(n ? `Delivered ${n} postcard${n > 1 ? "s" : ""} (demo)` : "Nothing in the post right now.");
+    toast(n ? tr(n > 1 ? "Delivered {n} postcards (demo)" : "Delivered 1 postcard (demo)", { n }) : tr("Nothing in the post right now."));
     load();
   });
 
@@ -336,7 +338,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     const card = cardEl(model(c));
     card.classList.add("flippable");
     card.setAttribute("role", "button");
-    card.setAttribute("aria-label", "Flip the postcard");
+    card.setAttribute("aria-label", tr("Flip the postcard"));
     card.addEventListener("click", () => card.classList.toggle("flipped"));
     $("pc-viewer-card").replaceChildren(card);
     loadImages(card);
@@ -344,10 +346,12 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     const isInbox = c.to_id === meId();
     const n = daysInPost(c);
     $("pc-viewer-meta").textContent = isInbox
-      ? `From ${nameOf(c.from_id)} · posted ${fmtDate(c.sent_at)} · arrived ${fmtDate(c.delivers_at)} (${n} day${n > 1 ? "s" : ""} in the post)`
+      ? tr(n > 1 ? "From {name} · posted {sent} · arrived {arrived} ({n} days in the post)" : "From {name} · posted {sent} · arrived {arrived} (1 day in the post)",
+        { name: nameOf(c.from_id), sent: fmtDate(c.sent_at), arrived: fmtDate(c.delivers_at), n })
       : delivered(c)
-        ? `To ${nameOf(c.to_id)} · arrived ${fmtDate(c.delivers_at)} after ${n} day${n > 1 ? "s" : ""} · ${c.read_at ? "read ✓" : "not opened yet"}`
-        : `To ${nameOf(c.to_id)} · posted ${fmtDate(c.sent_at)} · still in the post 🚚`;
+        ? tr(n > 1 ? "To {name} · arrived {arrived} after {n} days" : "To {name} · arrived {arrived} after 1 day",
+          { name: nameOf(c.to_id), arrived: fmtDate(c.delivers_at), n }) + " · " + (c.read_at ? tr("read ✓") : tr("not opened yet|card"))
+        : tr("To {name} · posted {sent} · still in the post 🚚", { name: nameOf(c.to_id), sent: fmtDate(c.sent_at) });
     $("pc-viewer").showModal();
     if (isInbox && !c.read_at) markRead(c);
   }
@@ -391,7 +395,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
   /** What goes on the card: a preset id, or the home-made stamp */
   const draftStamp = () => draft.stamp === "custom" ? draft.custom : draft.stamp;
   const customIsBlank = () => { const c = draft.custom; return !c.img && !c.emoji.trim() && !c.label.trim() && !c.value.trim(); };
-  const ownTile = () => customIsBlank() ? { emoji: "＋", label: "Your own", color: draft.custom.color } : draft.custom;
+  const ownTile = () => customIsBlank() ? { emoji: "＋", label: tr("Your own"), color: draft.custom.color } : draft.custom;
 
   function discardDraft() {
     if (!draft) return;
@@ -402,9 +406,9 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
 
   $("mail-write").addEventListener("click", () => {
     const to = recipient();
-    if (!to) return toast("There's nobody to send a postcard to yet.");
+    if (!to) return toast(tr("There's nobody to send a postcard to yet."));
     draft ??= newDraft();
-    $("pc-compose-title").textContent = `Postcard to ${to.display_name}`;
+    $("pc-compose-title").textContent = tr("Postcard to {name}", { name: to.display_name });
     previewCard = cardEl({ ...draft, toName: to.display_name }, { hint: true });
     previewCard.classList.add("flippable");
     previewCard.classList.toggle("flipped", draft.side === "back");
@@ -437,9 +441,9 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     ta.value = s.text;
     ta.maxLength = LIMITS[draft.side];
     ta.placeholder = draft.side === "front"
-      ? "Big words for the front, or a caption for your photo…"
-      : `Dear ${recipient()?.display_name ?? "you"},\n…`;
-    $("pc-photo").textContent = s.blob ? "📷 Change photo" : "📷 Add photo";
+      ? tr("Big words for the front, or a caption for your photo…")
+      : tr("Dear {name},", { name: recipient()?.display_name ?? tr("you") }) + "\n…";
+    $("pc-photo").textContent = s.blob ? tr("📷 Change photo") : tr("📷 Add photo");
     $("pc-photo-remove").hidden = !s.blob;
     $("pc-swatches").replaceChildren(...SWATCHES.map((c) => {
       const b = el("button", "swatch");
@@ -467,8 +471,8 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
       });
       return b;
     };
-    $("pc-stamps").replaceChildren(opt("custom", "Make your own stamp", ownTile()),
-      ...STAMPS.map((st) => opt(st.id, `${st.label} stamp`, st.id)));
+    $("pc-stamps").replaceChildren(opt("custom", tr("Make your own stamp"), ownTile()),
+      ...STAMPS.map((st) => opt(st.id, tr("{name} stamp", { name: st.label }), st.id)));
     renderStampEditor();
   }
 
@@ -478,7 +482,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     $("pc-st-emoji").value = c.emoji;
     $("pc-st-label").value = c.label;
     $("pc-st-value").value = c.value;
-    $("pc-st-photo").textContent = c.img ? "🖼️ Change picture" : "🖼️ Use a picture";
+    $("pc-st-photo").textContent = c.img ? tr("🖼️ Change picture") : tr("🖼️ Use a picture");
     $("pc-st-photo-remove").hidden = !c.img;
     $("pc-st-colors").replaceChildren(...STAMP_COLORS.map((col) => {
       const b = el("button", "swatch");
@@ -534,7 +538,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !draft) return;
-    if (file.type && !file.type.startsWith("image/")) return toast("Please pick an image.");
+    if (file.type && !file.type.startsWith("image/")) return toast(tr("Please pick an image."));
     const forStamp = fileFor === "stamp";
     const s = forStamp ? draft.custom : draft[draft.side];
     try {
@@ -545,13 +549,13 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
       if (forStamp) renderStamps(); else renderSide();
       refreshPreview();
     } catch (err) {
-      toast(err.message ?? "Couldn't read that image.");
+      toast(err.message ?? tr("Couldn't read that image."));
     }
   });
 
   $("pc-cancel").addEventListener("click", () => $("pc-compose").close()); // keeps the draft
   $("pc-discard").addEventListener("click", () => {
-    if (!draftIsEmpty() && !confirm("Throw this postcard away?")) return;
+    if (!draftIsEmpty() && !confirm(tr("Throw this postcard away?"))) return;
     discardDraft();
     $("pc-compose").close();
   });
@@ -563,18 +567,18 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     const { front, back } = draft;
     if (!front.blob && !front.text.trim()) {
       setSide("front");
-      return toast("The front is empty: add a photo or some words.");
+      return toast(tr("The front is empty: add a photo or some words."));
     }
     const custom = draft.stamp === "custom" ? draft.custom : null;
     if (custom && customIsBlank()) {
       setSide("back");
-      return toast("Your stamp is blank: give it an emoji, some text or a picture.");
+      return toast(tr("Your stamp is blank: give it an emoji, some text or a picture."));
     }
-    if (!confirm(`Post this to ${to.display_name}?\nIt will take somewhere between 2 and 15 days to arrive, and once it's in the post you can't get it back.`)) return;
+    if (!confirm(tr("Post this to {name}?\nIt will take somewhere between 2 and 15 days to arrive, and once it's in the post you can't get it back.", { name: to.display_name }))) return;
 
     const btn = $("pc-send");
     btn.disabled = true;
-    btn.textContent = "Posting…";
+    btn.textContent = tr("Posting…");
     const uploaded = [];
     try {
       const up = async (s) => {
@@ -602,13 +606,13 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
       $("pc-compose").close();
       seg = "sent";
       render();
-      toast(`Posted! It's on its way to ${to.display_name} 📮`);
+      toast(tr("Posted! It's on its way to {name} 📮", { name: to.display_name }));
     } catch (err) {
       uploaded.forEach((p) => photos.remove(p).catch(() => {}));
-      toast("Couldn't post it: " + (err.message ?? err));
+      toast(tr("Couldn't post it: ") + (err.message ?? err));
     } finally {
       btn.disabled = false;
-      btn.textContent = "Post it 📮";
+      btn.textContent = tr("Post it 📮");
     }
   });
 

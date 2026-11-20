@@ -3,6 +3,8 @@
 // Both people can add, tick, edit and delete anything; changes sync live.
 // =============================================================================
 
+import { tr } from "./i18n.js";
+
 const $ = (id) => document.getElementById(id);
 const LAST_LIST_KEY = "duo-last-list";
 
@@ -44,7 +46,7 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
       sb.from("lists").select("*").order("created_at"),
       sb.from("list_items").select("*").order("created_at"),
     ]);
-    if (l.error || e.error) return toast("Couldn't load lists: " + (l.error ?? e.error).message);
+    if (l.error || e.error) return toast(tr("Couldn't load lists: ") + (l.error ?? e.error).message);
     lists.clear();
     entries.clear();
     // trip packing lists live in the Trips tab
@@ -107,7 +109,7 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
     const add = document.createElement("button");
     add.type = "button";
     add.className = "chip new";
-    add.textContent = "+ New list";
+    add.textContent = tr("+ New list");
     add.addEventListener("click", newList);
     $("list-chips").replaceChildren(...chips, add);
 
@@ -137,7 +139,7 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
     const check = document.createElement("button");
     check.type = "button";
     check.className = "check";
-    check.setAttribute("aria-label", it.done ? "Mark as not done" : "Mark as done");
+    check.setAttribute("aria-label", it.done ? tr("Mark as not done") : tr("Mark as done"));
     check.setAttribute("aria-pressed", String(it.done));
     check.innerHTML = "<span>✓</span>";
     check.addEventListener("click", () => toggle(it));
@@ -146,13 +148,13 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
     text.type = "button";
     text.className = "entry-text";
     text.textContent = it.body;
-    text.title = "Edit";
+    text.title = tr("Edit");
     text.addEventListener("click", () => openEditor(it.body, (body) => update(it, { body })));
 
     const del = document.createElement("button");
     del.type = "button";
     del.className = "entry-del";
-    del.setAttribute("aria-label", "Delete");
+    del.setAttribute("aria-label", tr("Delete"));
     del.textContent = "✕";
     del.addEventListener("click", () => remove(it));
 
@@ -169,7 +171,7 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
     if (error) {
       Object.assign(it, before);
       render();
-      toast("Couldn't save: " + error.message);
+      toast(tr("Couldn't save: ") + error.message);
     }
   }
 
@@ -179,14 +181,14 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
   }
 
   async function remove(it) {
-    if (!confirm(`Delete "${it.body}"?`)) return;
+    if (!confirm(tr('Delete "{x}"?', { x: it.body }))) return;
     entries.delete(it.id);
     render();
     const { error } = await sb.from("list_items").delete().eq("id", it.id);
     if (error) {
       entries.set(it.id, it);
       render();
-      toast("Couldn't delete: " + error.message);
+      toast(tr("Couldn't delete: ") + error.message);
     }
   }
 
@@ -201,19 +203,19 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
       .select().single();
     if (error) {
       input.value = body;
-      return toast("Couldn't add: " + error.message);
+      return toast(tr("Couldn't add: ") + error.message);
     }
     entries.set(data.id, data);
     render();
   });
 
   async function newList() {
-    const name = prompt("Name of the new list", "")?.trim();
+    const name = prompt(tr("Name of the new list"), "")?.trim();
     if (!name) return;
     const { data, error } = await sb.from("lists")
       .insert({ name: name.slice(0, 60), created_by: getMe().id })
       .select().single();
-    if (error) return toast("Couldn't create the list: " + error.message);
+    if (error) return toast(tr("Couldn't create the list: ") + error.message);
     lists.set(data.id, data);
     choose(data.id);
   }
@@ -221,7 +223,7 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
   $("list-rename").addEventListener("click", async () => {
     const list = lists.get(currentId);
     if (!list) return;
-    const name = prompt("Rename list", list.name)?.trim();
+    const name = prompt(tr("Rename list"), list.name)?.trim();
     if (!name || name === list.name) return;
     const before = list.name;
     list.name = name.slice(0, 60);
@@ -230,7 +232,7 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
     if (error) {
       list.name = before;
       render();
-      toast("Couldn't rename: " + error.message);
+      toast(tr("Couldn't rename: ") + error.message);
     }
   });
 
@@ -238,17 +240,17 @@ export function createLists({ sb, getMe, colorOf, toast, openEditor }) {
     const list = lists.get(currentId);
     if (!list) return;
     const n = [...entries.values()].filter((e) => e.list_id === list.id).length;
-    if (!confirm(`Delete the list "${list.name}"${n ? ` and its ${n} item${n > 1 ? "s" : ""}` : ""}?`)) return;
+    if (!confirm(tr(!n ? 'Delete the list "{name}"?' : n > 1 ? 'Delete the list "{name}" and its {n} items?' : 'Delete the list "{name}" and its 1 item?', { name: list.name, n }))) return;
     const { error } = await sb.from("lists").delete().eq("id", list.id);
-    if (error) return toast("Couldn't delete the list: " + error.message);
+    if (error) return toast(tr("Couldn't delete the list: ") + error.message);
     apply(lists, { eventType: "DELETE", old: { id: list.id } });
   });
 
   $("list-clear-done").addEventListener("click", async () => {
     const done = [...entries.values()].filter((e) => e.list_id === currentId && e.done);
-    if (!done.length || !confirm(`Remove ${done.length} done item${done.length > 1 ? "s" : ""}?`)) return;
+    if (!done.length || !confirm(tr(done.length > 1 ? "Remove {n} done items?" : "Remove 1 done item?", { n: done.length }))) return;
     const { error } = await sb.from("list_items").delete().eq("list_id", currentId).eq("done", true);
-    if (error) return toast("Couldn't clear: " + error.message);
+    if (error) return toast(tr("Couldn't clear: ") + error.message);
     done.forEach((d) => entries.delete(d.id));
     render();
   });

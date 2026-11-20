@@ -6,6 +6,7 @@
 // =============================================================================
 
 import { paintFitted, packStrokes } from "./drawing.js";
+import { tr } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const HINT_AFTER = 3;        // wrong guesses before the first letter is shown
@@ -79,7 +80,7 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
   async function load() {
     const { data, error } = await sb.from("sketches").select("*").order("id");
     missing = !!error && /does not exist|schema cache|unknown table/i.test(error.message);
-    if (error && !missing) toast("Couldn't load drawings: " + error.message);
+    if (error && !missing) toast(tr("Couldn't load drawings: ") + error.message);
     if (!error) {
       rows.clear();
       data.forEach((r) => rows.set(r.id, r));
@@ -113,16 +114,16 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
       s.style.setProperty("--c", colorOf.get(m.user_id));
       s.innerHTML = "<b></b><span></span>";
       s.querySelector("b").textContent = newest().filter((r) => r.status === "guessed" && r.guesser_id === m.user_id).length;
-      s.querySelector("span").textContent = `${m.display_name} guessed`;
+      s.querySelector("span").textContent = tr("{name} guessed", { name: m.display_name });
       return s;
     }));
 
     const todo = toGuess();
     const sent = newest().filter((r) => r.status === "guessing" && r.drawer_id === meId());
     const done = newest().filter((r) => r.status !== "guessing").slice(0, DONE_SHOWN);
-    section("sk-todo", todo, "To guess");
-    section("sk-sent", sent, `Waiting for ${other()?.display_name ?? ""}`);
-    section("sk-done", done, "Done");
+    section("sk-todo", todo, tr("To guess"));
+    section("sk-sent", sent, tr("Waiting for {name}", { name: other()?.display_name ?? "" }));
+    section("sk-done", done, tr("Done"));
     $("sk-empty").hidden = rows.size > 0;
 
     if ($("sk-round").open) {
@@ -156,7 +157,7 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
       const gift = document.createElement("span");
       gift.className = "sk-gift";
       gift.textContent = "🎁";
-      label.textContent = `From ${nameOf(r.drawer_id)}`;
+      label.textContent = tr("From {name}", { name: nameOf(r.drawer_id) });
       b.append(gift, label);
     } else {
       const c = document.createElement("canvas");
@@ -164,13 +165,13 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
       c.height = 225;
       paintFitted(c, r.strokes);
       label.textContent = r.status === "guessing"
-        ? `${r.word} · ${tries(r) ? `${tries(r)} guess${tries(r) > 1 ? "es" : ""} so far` : "not opened yet"}`
+        ? `${r.word} · ${tries(r) ? tr(tries(r) > 1 ? "{n} guesses so far" : "1 guess so far", { n: tries(r) }) : tr("not opened yet")}`
         : r.word;
       b.append(c, label);
       if (r.status !== "guessing") {
         const sub = document.createElement("small");
         sub.className = "muted";
-        sub.textContent = r.status === "guessed" ? `✓ in ${tries(r)}` : "gave up";
+        sub.textContent = r.status === "guessed" ? tr("✓ in {n}", { n: tries(r) }) : tr("gave up");
         label.append(" ", sub);
       }
     }
@@ -190,8 +191,8 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
     const guessing = r.status === "guessing";
     const iGuess = r.guesser_id === meId();
     $("sk-r-title").textContent = iGuess
-      ? `${nameOf(r.drawer_id)} drew…`
-      : `You drew “${r.word}”`;
+      ? tr("{name} drew…", { name: nameOf(r.drawer_id) })
+      : tr("You drew “{word}”", { word: r.word });
 
     // the word: blanks while guessing, with the first letter as a hint after a few tries
     const blanks = $("sk-r-word");
@@ -210,7 +211,7 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
         }
         blanks.append(s);
       }
-      blanks.setAttribute("aria-label", `${norm(r.word).length} letters`);
+      blanks.setAttribute("aria-label", tr("{n} letters", { n: norm(r.word).length }));
     } else {
       blanks.textContent = r.word;
       blanks.removeAttribute("aria-label");
@@ -218,13 +219,15 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
 
     let status;
     if (r.status === "guessed") {
-      status = `${iGuess ? "You" : nameOf(r.guesser_id)} got it in ${tries(r)} ${tries(r) === 1 ? "guess" : "guesses"} 🎉`;
+      status = iGuess
+        ? tr(tries(r) === 1 ? "You got it in 1 guess 🎉" : "You got it in {n} guesses 🎉", { n: tries(r) })
+        : tr(tries(r) === 1 ? "{name} got it in 1 guess 🎉" : "{name} got it in {n} guesses 🎉", { name: nameOf(r.guesser_id), n: tries(r) });
     } else if (r.status === "gave_up") {
-      status = `${iGuess ? "You" : nameOf(r.guesser_id)} gave up`;
+      status = iGuess ? tr("You gave up") : tr("{name} gave up", { name: nameOf(r.guesser_id) });
     } else if (iGuess) {
-      status = `${norm(r.word).length} letters` + (tries(r) >= HINT_AFTER ? " · here's the first one" : "");
+      status = tr("{n} letters", { n: norm(r.word).length }) + (tries(r) >= HINT_AFTER ? tr(" · here's the first one") : "");
     } else {
-      status = tries(r) ? `${nameOf(r.guesser_id)} is guessing…` : `${nameOf(r.guesser_id)} hasn't opened it yet`;
+      status = tr(tries(r) ? "{name} is guessing…" : "{name} hasn't opened it yet", { name: nameOf(r.guesser_id) });
     }
     $("sk-r-status").textContent = status;
 
@@ -241,7 +244,7 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
     $("sk-giveup").hidden = !(guessing && iGuess);
     $("sk-pin").hidden = guessing;
     $("sk-pin").disabled = !!r.pinned;
-    $("sk-pin").textContent = r.pinned ? "📌 On the board" : "📌 Put on today's board";
+    $("sk-pin").textContent = r.pinned ? tr("📌 On the board") : tr("📌 Put on today's board");
 
     sizeCanvas();
     if (animate) play(r);
@@ -277,7 +280,7 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
     if (error) {
       Object.assign(r, before);
       render();
-      toast("Couldn't save: " + error.message);
+      toast(tr("Couldn't save: ") + error.message);
       return false;
     }
     return true;
@@ -290,7 +293,7 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
     if (!r || r.status !== "guessing" || !guess) return;
     $("sk-guess-input").value = "";
     const right = isRight(guess, r.word);
-    if (!right && r.guesses.some((g) => norm(g) === norm(guess))) return toast("You tried that one already.");
+    if (!right && r.guesses.some((g) => norm(g) === norm(guess))) return toast(tr("You tried that one already."));
     if (navigator.vibrate) navigator.vibrate(right ? [20, 60, 20] : 10);
     if (!right) $("sk-guess-input").focus();
     await update(r, {
@@ -301,7 +304,7 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
 
   $("sk-giveup").addEventListener("click", () => {
     const r = rows.get(openId);
-    if (r && confirm("Give up and see the word?")) {
+    if (r && confirm(tr("Give up and see the word?"))) {
       update(r, { status: "gave_up", finished_at: new Date().toISOString() });
     }
   });
@@ -315,9 +318,9 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
     const r = rows.get(openId);
     if (!r || r.pinned) return;
     $("sk-round").close();
-    const how = r.status === "guessed" ? `, guessed by ${nameOf(r.guesser_id)} in ${tries(r)}` : "";
-    if (!await pinToBoard(r.strokes, `🖍️ ${r.word}, drawn by ${nameOf(r.drawer_id)}${how}`)) return;
-    toast("It's on today's board 📌");
+    const how = r.status === "guessed" ? tr(", guessed by {name} in {n}", { name: nameOf(r.guesser_id), n: tries(r) }) : "";
+    if (!await pinToBoard(r.strokes, `🖍️ ${r.word}, ${tr("drawn by {name}", { name: nameOf(r.drawer_id) })}${how}`)) return;
+    toast(tr("It's on today's board 📌"));
     update(r, { pinned: true });
   });
 
@@ -350,21 +353,21 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
     const to = other();
     if (!to) return;
     openDraw((strokes) => send(word, strokes, to.user_id), {
-      prompt: `Draw “${word}” for ${to.display_name}. No letters!`,
-      saveLabel: "Send",
+      prompt: tr("Draw “{word}” for {name}. No letters!", { word, name: to.display_name }),
+      saveLabel: tr("Send"),
     });
   }
 
   async function send(word, strokes, guesserId) {
     const packed = packStrokes(strokes);
-    if (JSON.stringify(packed).length > MAX_STROKES_JSON) return toast("That drawing is too detailed to send. Try a simpler one.");
+    if (JSON.stringify(packed).length > MAX_STROKES_JSON) return toast(tr("That drawing is too detailed to send. Try a simpler one."));
     const { data, error } = await sb.from("sketches")
       .insert({ word, strokes: packed, guesser_id: guesserId })
       .select().single();
-    if (error) return toast("Couldn't send: " + error.message);
+    if (error) return toast(tr("Couldn't send: ") + error.message);
     rows.set(data.id, data);
     render();
-    toast(`Sent to ${nameOf(guesserId)} ✉️`);
+    toast(tr("Sent to {name} ✉️", { name: nameOf(guesserId) }));
   }
 
   $("sk-draw").addEventListener("click", () => {

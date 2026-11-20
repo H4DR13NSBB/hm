@@ -37,6 +37,7 @@
       </label>
       <button type="submit" class="primary big">Sign in</button>
       <p id="login-error" class="error" role="alert"></p>
+      <button type="button" class="lang-btn ghost small login-lang">FR</button>
       <div id="demo-login" class="demo-box" hidden>
         <p><b>Demo mode:</b> no Supabase keys in <code>config.js</code> yet, so everything runs in this browser.
           Open a second tab and sign in as the other person to see both sides.</p>
@@ -63,6 +64,7 @@
       </div>
       <div class="topbar-actions">
         <button type="button" id="gift-btn" class="icon-btn small" aria-label="Gift boxes"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><rect x="3.5" y="8" width="17" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5 12v7.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V12M12 8v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 8c-1.2-2.8-4.6-4.2-5.6-2.4C5.6 7 8.6 8 12 8zm0 0c1.2-2.8 4.6-4.2 5.6-2.4C18.4 7 15.4 8 12 8z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><b id="gift-badge" class="tab-badge" hidden></b></button>
+        <button type="button" class="lang-btn ghost small">FR</button>
         <button class="signout-btn ghost small">Sign out</button>
       </div>
     </header>
@@ -238,7 +240,7 @@
             <p id="q-card-text"></p>
             <span id="q-card-note" class="muted"></span>
             <span id="q-stamp-no" class="q-stamp no">Skip</span>
-            <span id="q-stamp-yes" class="q-stamp yes">Answered</span>
+            <span id="q-stamp-yes" class="q-stamp yes" data-i18n="Answered|stamp">Answered</span>
           </div>
         </div>
         <div class="q-controls">
@@ -275,6 +277,24 @@
         <div class="pane-title">
           <h2>Games</h2>
         </div>
+        <!-- Word of the day (words.js) -->
+        <section id="wd" class="wd" aria-label="French word of the day" hidden>
+          <div class="wd-top">
+            <span class="wd-label">🇫🇷 Word of the day</span>
+            <span id="wd-known" class="muted"></span>
+          </div>
+          <div id="wd-word" class="wd-word">
+            <p class="wd-fr"><span id="wd-fr" lang="fr"></span>
+              <button type="button" id="wd-speak" class="icon-btn small" aria-label="Say it">🔊</button></p>
+            <p id="wd-en" class="wd-en"></p>
+          </div>
+          <div class="wd-actions">
+            <button type="button" id="wd-knew" class="primary small">I knew this one</button>
+            <button type="button" id="wd-save" class="small">＋ Save</button>
+            <button type="button" id="wd-pin" class="small">📌 Pin</button>
+          </div>
+        </section>
+
         <div id="g-main">
           <div id="g-kinds" class="seg-toggle g-kinds" role="tablist">
             <button type="button" data-game="tictactoe">Tic-tac-toe</button>

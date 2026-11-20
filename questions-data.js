@@ -2,7 +2,13 @@
 // The built-in question deck (from Wavelength). Each question's id is its
 // position here ("b1", "b2", ...), and answered/saved marks are stored by id,
 // so only ever ADD questions at the end. Never reorder or delete lines.
+// French versions live in questions-fr.js.
 // =============================================================================
+
+import { lang } from "./i18n.js";
+import { DEPTHS_FR, QUESTIONS_FR } from "./questions-fr.js";
+
+const fr = lang === "fr";
 
 export const DEPTHS = [
   { id: "surface",  name: "Surface",  depth: 1, color: "#3e9bc7", blurb: "Easy openers to get things moving." },
@@ -11,7 +17,7 @@ export const DEPTHS = [
   { id: "deepend",  name: "Deep End", depth: 4, color: "#3e4b8c", blurb: "Fears, dreams, the things underneath." },
   { id: "trench",   name: "Trench",   depth: 5, color: "#5c3a8e", blurb: "Love, mortality, the deepest truths." },
   { id: "riptide",  name: "Riptide",  depth: 5, color: "#d1476b", blurb: "Flirty and a little dangerous." },
-];
+].map((d) => (fr ? { ...d, ...DEPTHS_FR[d.id] } : d));
 
 export const BUILT_IN = [
   ["surface", "What's a small thing that made you smile this week?"],
@@ -230,4 +236,4 @@ export const BUILT_IN = [
   ["riptide", "What's a rule you'd want to break, just for one night?"],
   ["riptide", "What's your favorite way to reconnect physically after a fight?"],
   ["riptide", "What's something you want me to ask you more often?"],
-].map(([depth, text], i) => ({ key: "b" + (i + 1), depth, text }));
+].map(([depth, text], i) => ({ key: "b" + (i + 1), depth, text: (fr && QUESTIONS_FR[text]) || text }));

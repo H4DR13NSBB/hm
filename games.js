@@ -6,6 +6,8 @@
 // new row, so the old ones stay behind as the score.
 // =============================================================================
 
+import { tr } from "./i18n.js";
+
 const $ = (id) => document.getElementById(id);
 const GAME_KEY = "duo-game";
 
@@ -91,7 +93,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
     sketch.load();
     const { data, error } = await sb.from("games").select("*").order("id");
     missing = !!error && /does not exist|schema cache|unknown table/i.test(error.message);
-    if (error && !missing) toast("Couldn't load games: " + error.message);
+    if (error && !missing) toast(tr("Couldn't load games: ") + error.message);
     if (!error) {
       games.clear();
       data.forEach((g) => games.set(g.id, g));
@@ -102,7 +104,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
   // ---------- helpers ----------
   const meId = () => getMe()?.id;
   const otherId = () => getMembers().find((m) => m.user_id !== meId())?.user_id;
-  const nameOf = (id) => (id === meId() ? "You" : getMembers().find((m) => m.user_id === id)?.display_name ?? "?");
+  const nameOf = (id) => (id === meId() ? tr("You") : getMembers().find((m) => m.user_id === id)?.display_name ?? "?");
   const ofKind = (k) => [...games.values()].filter((g) => g.kind === k).sort((a, b) => a.id - b.id);
   const current = (k = kind) => ofKind(k).at(-1) ?? null;
   const markOf = (g, id) => (id === g.x_id ? "x" : "o");
@@ -166,7 +168,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
     }));
     const d = document.createElement("span");
     d.className = "g-score-draws muted";
-    d.textContent = draws === 1 ? "1 draw" : `${draws} draws`;
+    d.textContent = tr(draws === 1 ? "1 draw" : "{n} draws", { n: draws });
     $("g-score").append(d);
   }
 
@@ -174,19 +176,19 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
     const el = $("g-status");
     let text, color = null;
     if (!g) {
-      text = "Make the first move";
+      text = tr("Make the first move");
       color = colorOf.get(meId());
     } else if (g.winner === "draw") {
-      text = "It's a draw";
+      text = tr("It's a draw");
     } else if (g.winner) {
       const id = playerOf(g, g.winner);
-      text = id === meId() ? "You win! 🎉" : `${nameOf(id)} wins`;
+      text = id === meId() ? tr("You win! 🎉") : tr("{name} wins", { name: nameOf(id) });
       color = colorOf.get(id);
     } else if (g.next_id === meId()) {
-      text = "Your turn";
+      text = tr("Your turn");
       color = colorOf.get(meId());
     } else {
-      text = `${nameOf(g.next_id)}'s turn`;
+      text = tr("{name}'s turn", { name: nameOf(g.next_id) });
       color = colorOf.get(g.next_id);
     }
     el.textContent = text;
@@ -216,7 +218,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
         const col = document.createElement("button");
         col.type = "button";
         col.className = "g-col";
-        col.setAttribute("aria-label", `Column ${c + 1}`);
+        col.setAttribute("aria-label", tr("Column {n}", { n: c + 1 }));
         col.disabled = !mine || cells[c] !== "-";
         for (let r = 0; r < KINDS.connect4.rows; r++) {
           col.append(cellEl(r * cols + c, cells, g, line, before));
@@ -231,7 +233,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "g-cell-btn";
-      b.setAttribute("aria-label", `Row ${Math.floor(i / cols) + 1}, column ${(i % cols) + 1}`);
+      b.setAttribute("aria-label", tr("Row {r}, column {c}", { r: Math.floor(i / cols) + 1, c: (i % cols) + 1 }));
       b.disabled = !mine || cells[i] !== "-";
       b.append(cellEl(i, cells, g, line, before));
       b.addEventListener("click", () => move(i));
@@ -293,7 +295,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
     busy = false;
     if (error || !data?.length) {
       Object.assign(g, before);
-      toast(error ? "Couldn't play: " + error.message : "The board changed. Have another look.");
+      toast(error ? tr("Couldn't play: ") + error.message : tr("The board changed. Have another look."));
       return load();
     }
     games.set(g.id, data[0]);
@@ -309,7 +311,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
     }).select().single();
     busy = false;
     if (error) {
-      toast("Couldn't start a game: " + error.message);
+      toast(tr("Couldn't start a game: ") + error.message);
       render();
       return null;
     }
@@ -332,7 +334,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
   });
   $("g-again").addEventListener("click", again);
   $("g-restart").addEventListener("click", () => {
-    if (confirm(`Give up this ${KINDS[kind].name} game and start a new one? It won't count.`)) again();
+    if (confirm(tr("Give up this {game} game and start a new one? It won't count.", { game: tr(KINDS[kind].name) }))) again();
   });
 
   return { start, stop, load, render };

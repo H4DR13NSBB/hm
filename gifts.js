@@ -12,12 +12,13 @@
 // =============================================================================
 
 import { stopAll } from "./media.js";
+import { tr, locale } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const OCCASIONS = {
-  advent:      { emoji: "🎄", name: "Advent calendar" },
-  birthday:    { emoji: "🎂", name: "Birthday" },
-  anniversary: { emoji: "💞", name: "Anniversary" },
+  advent:      { emoji: "🎄", name: tr("Advent calendar") },
+  birthday:    { emoji: "🎂", name: tr("Birthday") },
+  anniversary: { emoji: "💞", name: tr("Anniversary") },
 };
 const PEEK = { photo: "📷", drawing: "🖍️", gif: "🎞️", sticker: "✨", audio: "🎙️", video: "🎥", note: "💌" };
 const OPEN_MS = 1500; // how long the opening animation runs before the contents appear
@@ -31,14 +32,14 @@ const el = (tag, cls, text) => {
 const md = (day) => day.slice(5);
 const dayNum = (day) => Number(day.slice(8));
 function fmtDay(day, withYear = false) {
-  return new Date(day + "T12:00:00Z").toLocaleDateString("en-GB", {
+  return new Date(day + "T12:00:00Z").toLocaleDateString(locale, {
     day: "numeric", month: "long", timeZone: "UTC", ...(withYear && { year: "numeric" }),
   });
 }
 function fmtWhen(ts) {
   const d = new Date(ts);
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + " at " +
-    d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString(locale, { day: "numeric", month: "short" }) + tr(" at ") +
+    d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }
 /** The next time an 'MM-DD' comes round, on or after `from`. */
 function nextDay(mmdd, from) {
@@ -115,7 +116,7 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
     if (!fresh.length) return;
     fresh.forEach((g) => announced.add(g.id));
     if (fresh.some((g) => g.day === getToday())) {
-      toast(`🎁 ${nameOf(fresh[0].from_id)} left you a box on the board today`);
+      toast(tr("🎁 {name} left you a box on the board today", { name: nameOf(fresh[0].from_id) }));
     }
   }
 
@@ -166,9 +167,9 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
         const box = boxEl(g);
         if (!mine && !g.opened_at) box.classList.add("for-me");
         const label = mine
-          ? `for ${nameOf(g.to_id)}${g.opened_at ? " · opened" : ""}`
-          : `from ${nameOf(g.from_id)}`;
-        btn.setAttribute("aria-label", `${OCCASIONS[g.occasion].name} box ${label}`);
+          ? tr("for {name}", { name: nameOf(g.to_id) }) + (g.opened_at ? tr(" · opened") : "")
+          : tr("from {name}", { name: nameOf(g.from_id) });
+        btn.setAttribute("aria-label", tr("{occasion} box {label}", { occasion: OCCASIONS[g.occasion].name, label }));
         btn.append(box, el("span", "gift-label", label));
         btn.addEventListener("click", () => tapBox(g.id));
         return btn;
@@ -204,26 +205,26 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
     if (missing || !loaded) {
       const p = el("p", "muted");
       p.innerHTML = loaded
-        ? "Almost there: run the <b>Gifts</b> part of <code>supabase/schema.sql</code> in the Supabase SQL Editor, then reopen Duo."
-        : "Loading…";
+        ? tr("Almost there: run the <b>Gifts</b> part of <code>supabase/schema.sql</code> in the Supabase SQL Editor, then reopen Duo.")
+        : tr("Loading…");
       return body.replaceChildren(p);
     }
     const them = other();
-    if (!them) return body.replaceChildren(el("p", "muted", "There's nobody to give boxes to yet."));
+    if (!them) return body.replaceChildren(el("p", "muted", tr("There's nobody to give boxes to yet.")));
     const today = getToday();
     const out = [];
 
     const waiting = waitingForMe();
     if (waiting.length) {
       const sec = el("section", "gp-section");
-      sec.append(el("h3", null, "Waiting for you"));
+      sec.append(el("h3", null, tr("Waiting for you")));
       const row = el("div", "gp-waiting");
       for (const g of waiting) {
         const btn = el("button", "gift");
         btn.type = "button";
         const box = boxEl(g);
         box.classList.add("for-me");
-        btn.append(box, el("span", "gift-label", `${fmtDay(g.day)} · from ${nameOf(g.from_id)}`));
+        btn.append(box, el("span", "gift-label", `${fmtDay(g.day)} · ${tr("from {name}", { name: nameOf(g.from_id) })}`));
         btn.addEventListener("click", () => openViewer(g));
         row.append(btn);
       }
@@ -232,7 +233,7 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
     }
 
     out.push(el("p", "muted small-note",
-      `Fill a box whenever you like. It appears on the board on its day, and ${them.display_name} can open it from then on.`));
+      tr("Fill a box whenever you like. It appears on the board on its day, and {name} can open it from then on.", { name: them.display_name })));
 
     // the occasions coming up, soonest first
     const upcoming = [];
@@ -252,7 +253,7 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
           .filter((d) => occasionOf(d, meId(), them.user_id) === "advent");
         const ready = days.filter((d) => sentFor(d)).length;
         const head = el("div", "gp-head");
-        head.append(el("h3", null, `🎄 Advent calendar ${adventYear}`), el("span", "muted", `${ready} / ${days.length} ready`));
+        head.append(el("h3", null, tr("🎄 Advent calendar {year}", { year: adventYear })), el("span", "muted", tr("{n} / {total} ready", { n: ready, total: days.length })));
         const grid = el("div", "gp-grid");
         for (const d of days) {
           const g = sentFor(d);
@@ -264,22 +265,22 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
           t.classList.toggle("today", d === today);
           const past = d < today;
           t.disabled = past && !g?.opened_at;
-          t.setAttribute("aria-label", `${fmtDay(d)}: ${g?.opened_at ? "opened" : g ? "ready" : past ? "missed" : "empty"}`);
+          t.setAttribute("aria-label", `${fmtDay(d)}: ${tr(g?.opened_at ? "opened" : g ? "ready" : past ? "missed" : "empty")}`);
           t.addEventListener("click", () => (g?.opened_at ? openViewer(g) : openComposer(d)));
           grid.append(t);
         }
         sec.append(head, grid);
-        if (today > lastAdvent) sec.append(el("p", "muted small-note", "That's all 24 for this year."));
+        if (today > lastAdvent) sec.append(el("p", "muted small-note", tr("That's all 24 for this year.")));
       } else {
         const g = sentFor(o.day);
         const info = OCCASIONS[o.type];
         const row = el("button", "gp-row");
         row.type = "button";
-        const title = o.type === "birthday" ? `${them.display_name}'s birthday` : info.name;
+        const title = o.type === "birthday" ? tr("{name}'s birthday", { name: them.display_name }) : info.name;
         const text = el("span", "gp-row-text");
         text.append(el("b", null, `${info.emoji} ${title}`), el("span", "muted", fmtDay(o.day, true)));
         const state = el("span", "gp-row-state",
-          g?.opened_at ? "Opened ✓" : g ? "Ready 🎁" : o.day === today ? "Today! Fill it" : "Fill it");
+          g?.opened_at ? tr("Opened ✓") : g ? tr("Ready 🎁") : o.day === today ? tr("Today! Fill it") : tr("Fill it"));
         state.classList.toggle("ready", !!g);
         row.append(text, state);
         row.addEventListener("click", () => (g?.opened_at ? openViewer(g) : openComposer(o.day)));
@@ -291,10 +292,10 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
     const mine = birthdays.get(meId());
     if (mine) {
       out.push(el("p", "muted small-note",
-        `🎂 Your birthday is on ${fmtDay(nextDay(mine, today))}: that day it's ${them.display_name}'s turn to give you one.`));
+        tr("🎂 Your birthday is on {date}: that day it's {name}'s turn to give you one.", { date: fmtDay(nextDay(mine, today)), name: them.display_name })));
     }
     if (!theirs || !mine || !anniversary) {
-      out.push(el("p", "muted small-note", "Birthdays and the anniversary are set in supabase/add-members.sql."));
+      out.push(el("p", "muted small-note", tr("Birthdays and the anniversary are set in supabase/add-members.sql.")));
     }
     body.replaceChildren(...out);
   }
@@ -307,7 +308,7 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
     const them = other();
     if (!them) return;
     const occasion = occasionOf(day, meId(), them.user_id);
-    if (!occasion) return toast("There's no box to fill on that day.");
+    if (!occasion) return toast(tr("There's no box to fill on that day."));
     const g = sentFor(day);
     if (g?.opened_at) return openViewer(g);
     const c = g && contents.get(g.id);
@@ -319,10 +320,10 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
       };
     }
     const info = OCCASIONS[occasion];
-    $("gc-title").textContent = `${info.emoji} Box for ${fmtDay(day)}`;
+    $("gc-title").textContent = `${info.emoji} ${tr("Box for {date}", { date: fmtDay(day) })}`;
     $("gc-sub").textContent = day === getToday()
-      ? `${them.display_name} can open it as soon as it's wrapped.`
-      : `It appears on the board on ${fmtDay(day)}, for ${them.display_name} to open.`;
+      ? tr("{name} can open it as soon as it's wrapped.", { name: them.display_name })
+      : tr("It appears on the board on {date}, for {name} to open.", { date: fmtDay(day), name: them.display_name });
     $("gc-note").value = draft.note;
     $("gc-delete").hidden = !g;
     renderDraft();
@@ -335,7 +336,7 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
     $("gc-remove").hidden = !it;
     for (const b of $("gc-kinds").children) b.hidden = !!it;
     if (!it) {
-      p.replaceChildren(el("span", "muted", "Pick something to hide inside, or just write a note."));
+      p.replaceChildren(el("span", "muted", tr("Pick something to hide inside, or just write a note.")));
     } else {
       p.replaceChildren(mediaEl(it.kind, it.preview, it.body, true, it.path));
       if (!it.preview && it.path) fillSrc(p, it.path);
@@ -426,7 +427,7 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
     if (!d.item && !note) return;
     const btn = $("gc-save");
     btn.disabled = true;
-    btn.textContent = "Wrapping…";
+    btn.textContent = tr("Wrapping…");
     const old = d.gift && contents.get(d.gift.id);
     let uploaded = null;
     try {
@@ -445,23 +446,23 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
       if (error) throw error;
       if (old?.media_path && old.media_path !== path) photos.remove(old.media_path).catch(() => {});
       if ($("gift-compose").open && draft === d) $("gift-compose").close();
-      toast(`🎁 Wrapped! It's ready for ${fmtDay(d.day)}.`);
+      toast(tr("🎁 Wrapped! It's ready for {date}.", { date: fmtDay(d.day) }));
       await load();
     } catch (err) {
       if (uploaded) photos.remove(uploaded).catch(() => {});
-      toast("Couldn't wrap it: " + (err.message ?? err));
+      toast(tr("Couldn't wrap it: ") + (err.message ?? err));
     } finally {
-      btn.textContent = "Wrap it 🎁";
+      btn.textContent = tr("Wrap it 🎁");
       updateSave();
     }
   });
 
   $("gc-delete").addEventListener("click", async () => {
     const d = draft;
-    if (!d?.gift || !confirm("Empty this box? What's inside will be deleted.")) return;
+    if (!d?.gift || !confirm(tr("Empty this box? What's inside will be deleted."))) return;
     const old = contents.get(d.gift.id);
     const { data, error } = await sb.from("gifts").delete().eq("id", d.gift.id).select();
-    if (error || !data?.length) return toast(error ? error.message : "It's already been opened.");
+    if (error || !data?.length) return toast(error ? error.message : tr("It's already been opened."));
     if (old?.media_path) photos.remove(old.media_path).catch(() => {});
     $("gift-compose").close();
     await load();
@@ -475,18 +476,18 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
     const mine = g.from_id === meId();
     const info = OCCASIONS[g.occasion];
     $("gv-title").textContent = mine
-      ? `${info.emoji} Your box for ${nameOf(g.to_id)} · ${fmtDay(g.day)}`
-      : `${info.emoji} ${fmtDay(g.day)} · from ${nameOf(g.from_id)}`;
+      ? `${info.emoji} ${tr("Your box for {name}", { name: nameOf(g.to_id) })} · ${fmtDay(g.day)}`
+      : `${info.emoji} ${fmtDay(g.day)} · ${tr("from {name}", { name: nameOf(g.from_id) })}`;
     const stage = $("gv-stage");
     stage.classList.remove("opening", "revealed");
     if (!mine && !g.opened_at) {
       const btn = el("button", "gv-box");
       btn.type = "button";
-      btn.setAttribute("aria-label", "Open it");
+      btn.setAttribute("aria-label", tr("Open it"));
       btn.append(boxEl(g, { big: true }));
       btn.addEventListener("click", () => unwrap(g, btn), { once: true });
       stage.replaceChildren(btn);
-      $("gv-meta").textContent = "Tap to open";
+      $("gv-meta").textContent = tr("Tap to open");
     } else {
       showContents(g);
     }
@@ -504,8 +505,8 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
       $("gv-stage").classList.remove("opening");
       btn.disabled = false;
       btn.addEventListener("click", () => unwrap(g, btn), { once: true });
-      $("gv-meta").textContent = "Tap to open";
-      return toast("Couldn't open it: " + (error?.message ?? err2?.message ?? "try again in a moment"));
+      $("gv-meta").textContent = tr("Tap to open");
+      return toast(tr("Couldn't open it: ") + (error?.message ?? err2?.message ?? tr("try again in a moment")));
     }
     contents.set(g.id, c);
     const row = gifts.get(g.id);
@@ -525,13 +526,13 @@ export function createGifts({ sb, getMe, getMembers, colorOf, toast, photos, get
     const wrap = el("div", "gv-content");
     if (c?.kind) wrap.append(mediaEl(c.kind, null, c.body, false, c.media_path));
     if (c?.note) wrap.append(el("p", "gv-note", c.note));
-    if (!c) wrap.append(el("p", "muted", "It's empty."));
+    if (!c) wrap.append(el("p", "muted", tr("It's empty.")));
     stage.replaceChildren(wrap);
     stage.classList.add("revealed");
     if (c?.media_path) fillSrc(wrap, c.media_path);
     $("gv-meta").textContent = g.opened_at
-      ? `${mine ? `${nameOf(g.to_id)} opened it` : "Opened"} ${fmtWhen(g.opened_at)}`
-      : mine ? `${nameOf(g.to_id)} hasn't opened it yet` : "";
+      ? `${mine ? tr("{name} opened it", { name: nameOf(g.to_id) }) : tr("Opened")} ${fmtWhen(g.opened_at)}`
+      : mine ? tr("{name} hasn't opened it yet|box", { name: nameOf(g.to_id) }) : "";
   }
 
   $("gv-close").addEventListener("click", () => $("gift-view").close());

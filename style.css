@@ -121,6 +121,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .card { width: 100%; max-width: 380px; display: grid; gap: 16px; }
 .card label { display: grid; gap: 6px; font-size: .9rem; color: var(--muted); }
 .logo { border-radius: 18px; justify-self: start; }
+.login-lang { justify-self: center; }
 
 /* ---------- app layout ----------
    Pinned to the *visual* viewport (set from JS) so the iOS keyboard
@@ -152,14 +153,14 @@ h2[tabindex="-1"]:focus { outline: none; }
 }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brand img { border-radius: 8px; flex: none; }
-.legend { display: flex; gap: 12px; font-weight: 600; font-size: .95rem; overflow: hidden; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.legend span::before {
-  content: "";
-  width: 10px; height: 10px;
+.legend { display: flex; align-items: center; gap: 6px; }
+.legend span {
+  width: 12px; height: 12px;
   border-radius: 50%;
   background: var(--c);
+  box-sizing: border-box;
 }
+.legend span.me { border: 2px solid var(--text); }
 
 /* ---------- demo / install hints ---------- */
 .demo-box {
@@ -1288,23 +1289,26 @@ input[type="date"], input[type="time"] { min-height: 46px; }
   gap: 4px;
   text-align: left;
   border-radius: 16px;
-  padding: 12px 12px 10px;
-  border: 1.5px solid var(--border);
-  border-top: 5px solid color-mix(in srgb, var(--dc) 35%, var(--border));
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
   white-space: normal;
 }
-.q-depth[aria-pressed="true"] {
-  border-color: var(--dc);
-  background: color-mix(in srgb, var(--dc) 10%, var(--surface));
-}
+.q-depth[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .q-depth:active { transform: scale(.98); }
 .q-depth-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.q-depth-head b { color: color-mix(in srgb, var(--dc) 65%, var(--text)); }
 .q-depth-blurb { font-size: .8rem; line-height: 1.3; color: var(--muted); }
 .q-depth-count { font-size: .75rem; font-weight: 600; color: var(--muted); margin-top: 2px; }
-.q-depth[aria-pressed="true"] .q-depth-count { color: color-mix(in srgb, var(--dc) 65%, var(--text)); }
+.q-depth[aria-pressed="true"] .q-depth-count { color: var(--accent); }
 .q-dots { display: inline-flex; gap: 3px; flex: none; }
-.q-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+/* hearts: a mask, so background still sets the colour */
+.q-dots i {
+  width: 11px;
+  height: 10px;
+  background: var(--border);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='2 3 20 19'%3E%3Cpath d='M12 21.6l-1.5-1.3C5.3 15.6 2 12.6 2 8.9 2 5.9 4.4 3.5 7.4 3.5c1.7 0 3.4.8 4.6 2.1 1.2-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.4 5.4 5.4 0 3.7-3.3 6.7-8.5 11.4z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='2 3 20 19'%3E%3Cpath d='M12 21.6l-1.5-1.3C5.3 15.6 2 12.6 2 8.9 2 5.9 4.4 3.5 7.4 3.5c1.7 0 3.4.8 4.6 2.1 1.2-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.4 5.4 5.4 0 3.7-3.3 6.7-8.5 11.4z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
 .q-dots i.on { background: var(--dc); }
 .q-fresh { margin: 16px 2px 0; color: var(--muted); }
 .q-start { width: 100%; margin-top: 14px; }
@@ -1330,12 +1334,13 @@ input[type="date"], input[type="time"] { min-height: 46px; }
   min-height: min(380px, 100%);
   display: flex;
   flex-direction: column;
-  padding: 18px 22px 20px;
-  border-radius: 24px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-top: 8px solid var(--dc);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, .12), 0 2px 6px rgba(0, 0, 0, .06);
+  padding: 18px;
+  border-radius: 20px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--dc) 55%, #fff 45%), transparent 55%),
+    linear-gradient(135deg, var(--dc), color-mix(in srgb, var(--dc) 65%, #000));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .12);
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -1344,36 +1349,39 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 .q-card.settling { transition: transform .25s cubic-bezier(.2, .9, .3, 1.2); }
 .q-card.flying { transition: transform .2s ease-in, opacity .2s ease-in; }
 .q-card-top { display: flex; align-items: center; justify-content: space-between; }
+/* same pill as .trip-badge */
 #q-card-depth {
-  font-size: .78rem;
+  font-size: .75rem;
   font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--dc) 65%, var(--text));
+  background: rgba(255, 255, 255, .22);
+  padding: 4px 10px;
+  border-radius: 999px;
 }
+.q-card .q-dots i { background: rgba(255, 255, 255, .3); }
+.q-card .q-dots i.on { background: #fff; }
 #q-card-text {
   flex: 1;
   display: flex;
   align-items: center;
   margin: 18px 0;
-  font: 600 1.45rem/1.3 "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.3;
   text-wrap: balance;
 }
-#q-card-note { font-size: .8rem; min-height: 1.2em; }
+#q-card-note { font-size: .85rem; min-height: 1.2em; color: inherit; opacity: .9; }
 .q-stamp {
   position: absolute;
-  top: 54px;
-  padding: 2px 10px;
-  border: 3px solid;
-  border-radius: 8px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: .06em;
+  top: 58px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: .9rem;
+  font-weight: 700;
   opacity: 0;
   pointer-events: none;
 }
-.q-stamp.yes { left: 18px; color: #2f9e6e; transform: rotate(-12deg); }
-.q-stamp.no { right: 18px; color: var(--muted); transform: rotate(12deg); }
+.q-stamp.yes { left: 18px; background: var(--accent); color: var(--accent-text); transform: rotate(-8deg); }
+.q-stamp.no { right: 18px; background: var(--surface); color: var(--muted); transform: rotate(8deg); }
 .q-controls { display: flex; justify-content: center; align-items: center; gap: 22px; }
 .q-round {
   width: 62px;
@@ -1384,7 +1392,7 @@ input[type="date"], input[type="time"] { min-height: 46px; }
   color: var(--muted);
 }
 .q-round.small { width: 46px; height: 46px; min-height: 46px; }
-.q-round.yes { background: #2f9e6e; border-color: transparent; color: #fff; }
+.q-round.yes { background: var(--accent); border-color: transparent; color: var(--accent-text); }
 .q-extras { display: flex; justify-content: center; gap: 4px; margin-top: 8px; }
 .q-extras button { padding: 0 10px; }
 #q-save[aria-pressed="true"] { color: var(--muted); }
@@ -1397,7 +1405,7 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 .q-new { display: grid; gap: 8px; margin-bottom: 10px; }
 .q-new select { flex: 1; }
 .q-play-saved { width: 100%; margin-bottom: 8px; }
-.q-entry .entry-text { display: grid; gap: 2px; padding-left: 12px; border-left: 4px solid var(--dc); margin: 6px 0; min-height: 0; }
+.q-entry .entry-text { display: grid; gap: 2px; padding-left: 12px; border-left: 3px solid var(--dc); margin: 6px 0; min-height: 0; }
 .q-entry small { font-size: .75rem; color: var(--muted); }
 .q-entry small::before {
   content: "";
@@ -1527,6 +1535,25 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 /* three games side by side, even on a small phone */
 .g-kinds { gap: 4px; }
 .g-kinds button { flex: 1; padding: 0 6px; white-space: nowrap; font-size: .82rem; }
+
+/* ---------- word of the day ---------- */
+.wd {
+  margin: 0 0 18px;
+  padding: 12px 16px 14px;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.wd-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: .82rem; }
+.wd-label { font-weight: 600; color: var(--muted); }
+.wd-word { margin: 6px 0 12px; }
+.wd-fr { display: flex; align-items: center; gap: 4px; margin: 0; font-size: 1.6rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.wd-en { margin: 2px 0 0; color: var(--muted); }
+.wd-word.roll { animation: wd-roll .3s ease-out; }
+@keyframes wd-roll { from { opacity: 0; transform: translateY(8px); } }
+.wd-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.wd-actions .primary { flex: 1 1 auto; }
+@media (prefers-reduced-motion: reduce) { .wd-word.roll { animation: none; } }
 
 /* ---------- draw & guess ---------- */
 #draw-prompt { margin: 0; text-align: center; font-weight: 600; }

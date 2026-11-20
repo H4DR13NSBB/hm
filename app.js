@@ -9,6 +9,8 @@ import { createSketch } from "./sketch.js";
 import { paint, renderPNG } from "./drawing.js";
 import { createRecorder, pickFile, togglePlay, wirePlayer, fmtDuration, stopAll } from "./media.js";
 import { createGifts } from "./gifts.js";
+import { createWords } from "./words.js";
+import { tr, locale, lang, setLang, translatePage } from "./i18n.js";
 
 const { SUPABASE_URL, SUPABASE_ANON_KEY } = config;
 // Optional, so an older config.js without it still loads
@@ -17,6 +19,8 @@ const PHOTOS_URL = (config.PHOTOS_URL || "").replace(/\/+$/, "");
 // No real Supabase keys yet? Run against the in-browser demo backend.
 const DEMO = SUPABASE_URL.includes("YOUR_") || SUPABASE_ANON_KEY.includes("YOUR_");
 const isLocal = ["localhost", "127.0.0.1", ""].includes(location.hostname) || location.hostname.startsWith("192.168.");
+
+translatePage();
 
 // ---------------------------------------------------------------------------
 // Board geometry. Everything is stored in "units": the board is 1000 units
@@ -100,7 +104,7 @@ if (DEMO) {
   for (const u of DEMO_USERS) {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = `Sign in as ${u.display_name}`;
+    b.textContent = tr("Sign in as {name}", { name: u.display_name });
     b.addEventListener("click", () => {
       $("login-email").value = u.display_name;
       $("login-password").value = "demo";
@@ -109,7 +113,7 @@ if (DEMO) {
     $("demo-login-buttons").append(b);
   }
   $("demo-reset").addEventListener("click", () => {
-    if (confirm("Delete all demo notes and photos and start over?")) sb.resetDemo();
+    if (confirm(tr("Delete all demo notes and photos and start over?"))) sb.resetDemo();
   });
 } else {
   const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm");
@@ -135,7 +139,7 @@ async function r2(method, route, body, headers = {}) {
     headers: { ...headers, Authorization: `Bearer ${data.session?.access_token}` },
   });
   const out = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(out.error || `Photo storage error (${res.status})`);
+  if (!res.ok) throw new Error(out.error || tr("Photo storage error ({status})", { status: res.status }));
   return out;
 }
 
@@ -202,7 +206,7 @@ async function compressImage(file) {
     source = await new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("That file couldn't be read as an image."));
+      img.onerror = () => reject(new Error(tr("That file couldn't be read as an image.")));
       img.src = URL.createObjectURL(file);
     });
   }
@@ -217,7 +221,7 @@ async function compressImage(file) {
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
   source.close?.();
   const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", PHOTO_QUALITY));
-  if (!blob) throw new Error("Couldn't process that image.");
+  if (!blob) throw new Error(tr("Couldn't process that image."));
   return { blob, aspect: canvas.width / canvas.height };
 }
 
@@ -248,7 +252,7 @@ function addDays(day, n) {
   return d.toISOString().slice(0, 10);
 }
 function formatDay(day) {
-  return new Date(day + "T12:00:00Z").toLocaleDateString("en-GB", {
+  return new Date(day + "T12:00:00Z").toLocaleDateString(locale, {
     day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
   });
 }
@@ -319,7 +323,9 @@ async function handleSession(session) {
   memberList = members;
   $("legend").replaceChildren(...members.map((m) => {
     const s = document.createElement("span");
-    s.textContent = m.display_name + (m.user_id === userId ? " (you)" : "");
+    s.title = m.display_name;
+    s.setAttribute("aria-label", m.display_name);
+    s.classList.toggle("me", m.user_id === userId);
     s.style.setProperty("--c", colorOf.get(m.user_id));
     return s;
   }));
@@ -340,6 +346,7 @@ async function handleSession(session) {
   mail.start();
   questions.start();
   games.start();
+  words.start();
 }
 
 function teardown() {
@@ -350,6 +357,7 @@ function teardown() {
   mail.stop();
   questions.stop();
   games.stop();
+  words.stop();
   if (channel) sb.removeChannel(channel);
   channel = null;
   me = null;
@@ -392,7 +400,7 @@ $("login-form").addEventListener("submit", async (e) => {
   });
   btn.disabled = false;
   if (error) $("login-error").textContent = error.message === "Invalid login credentials"
-    ? "Wrong name or password." : error.message;
+    ? tr("Wrong name or password.") : error.message;
   else {
     $("login-password").value = "";
     document.activeElement?.blur(); // dismiss the keyboard
@@ -401,9 +409,16 @@ $("login-form").addEventListener("submit", async (e) => {
 
 document.querySelectorAll(".signout-btn").forEach((b) =>
   b.addEventListener("click", () => {
-    if (confirm("Sign out?")) sb.auth.signOut();
+    if (confirm(tr("Sign out?"))) sb.auth.signOut();
   })
 );
+
+// English / French: the button shows the language you'd switch to
+document.querySelectorAll(".lang-btn").forEach((b) => {
+  b.textContent = lang === "fr" ? "EN" : "FR";
+  b.setAttribute("aria-label", lang === "fr" ? "Switch to English" : "Passer en français");
+  b.addEventListener("click", () => setLang(lang === "fr" ? "en" : "fr"));
+});
 
 // ---------------------------------------------------------------------------
 // Loading the board (newest day first, older days as you scroll down)
@@ -425,7 +440,7 @@ async function loadMore() {
       oldestDay = days.at(-1);
     }
   } catch (err) {
-    toast("Couldn't load the board: " + (err.message ?? err));
+    toast(tr("Couldn't load the board: ") + (err.message ?? err));
   } finally {
     loadingMore = false;
     $("board-end").hidden = !reachedStart;
@@ -496,7 +511,7 @@ function ensureSection(day) {
   canvas.className = "canvas";
   const hint = document.createElement("p");
   hint.className = "canvas-hint";
-  hint.textContent = "Tap anywhere to leave a note or a photo";
+  hint.textContent = tr("Tap anywhere to leave a note or a photo");
   canvas.append(hint);
   el.append(head, canvas);
 
@@ -513,7 +528,7 @@ function ensureSection(day) {
 function updateSectionState(s) {
   const isToday = s.day === today;
   s.el.classList.toggle("today", isToday);
-  s.status.textContent = isToday ? `Today · ${formatLeft(msUntilMidnight())} left` : "";
+  s.status.textContent = isToday ? tr("Today · {left} left", { left: formatLeft(msUntilMidnight()) }) : "";
   for (const el of s.canvas.querySelectorAll(".item[data-id]")) {
     const it = items.get(Number(el.dataset.id));
     el.classList.toggle("editable", !!it && isToday && it.author_id === me?.id);
@@ -587,7 +602,7 @@ function renderItem(it) {
       const play = document.createElement("button");
       play.type = "button";
       play.className = "play-btn";
-      play.setAttribute("aria-label", "Play");
+      play.setAttribute("aria-label", tr("Play"));
       const dur = document.createElement("span");
       dur.className = "dur";
       if (it.kind === "audio") {
@@ -710,13 +725,13 @@ async function flush(id) {
   if (error || !data?.length) {
     const it = items.get(id);
     if (it) { Object.assign(it, p.before); renderItem(it); scheduleFit(it.day); }
-    toast(error ? friendly(error) : "That day is locked now, so it can't be changed.");
+    toast(error ? friendly(error) : tr("That day is locked now, so it can't be changed."));
   }
 }
 
 function friendly(error) {
   const msg = error?.message ?? String(error);
-  return /row-level security|violates/i.test(msg) ? "That day is locked now, so it can't be changed." : msg;
+  return /row-level security|violates/i.test(msg) ? tr("That day is locked now, so it can't be changed.") : msg;
 }
 
 // ---------------------------------------------------------------------------
@@ -791,6 +806,7 @@ async function createText(pos, body) {
     .select().single();
   if (error) return toast(friendly(error));
   putItem(data);
+  return data;
 }
 
 $("file-input").addEventListener("change", async (e) => {
@@ -799,13 +815,13 @@ $("file-input").addEventListener("change", async (e) => {
   const pos = pendingPhotoPos;
   pendingPhotoPos = null;
   if (!file || !pos) return;
-  if (file.type && !file.type.startsWith("image/")) return toast("Please pick an image.");
+  if (file.type && !file.type.startsWith("image/")) return toast(tr("Please pick an image."));
 
   // Placeholder while we resize + upload
   const s = sections.get(today);
   const ph = document.createElement("div");
   ph.className = "item photo uploading";
-  ph.textContent = "Uploading…";
+  ph.textContent = tr("Uploading…");
   ph.style.setProperty("--w", 360);
   ph.style.setProperty("--ar", 4 / 3);
   ph.style.setProperty("--x", clamp(pos.x - 180, EDGE, W - 360 - EDGE));
@@ -832,7 +848,7 @@ $("file-input").addEventListener("change", async (e) => {
     putItem(data);
   } catch (err) {
     if (path) photos.remove(path).catch(() => {});
-    toast("Couldn't add the photo: " + friendly(err));
+    toast(tr("Couldn't add the photo: ") + friendly(err));
   } finally {
     ph.remove();
     scheduleFit(today);
@@ -851,7 +867,7 @@ async function addMedia(pos, rec) {
   const s = sections.get(today);
   const ph = document.createElement("div");
   ph.className = "item photo uploading";
-  ph.textContent = "Uploading…";
+  ph.textContent = tr("Uploading…");
   ph.style.setProperty("--w", w);
   ph.style.setProperty("--ar", aspect);
   ph.style.setProperty("--x", x);
@@ -868,7 +884,7 @@ async function addMedia(pos, rec) {
     putItem(data);
   } catch (err) {
     if (path) photos.remove(path).catch(() => {});
-    toast(`Couldn't add the ${video ? "video" : "voice note"}: ` + friendly(err));
+    toast(tr(video ? "Couldn't add the video: " : "Couldn't add the voice note: ") + friendly(err));
   } finally {
     ph.remove();
     scheduleFit(today);
@@ -887,7 +903,7 @@ let stroke = null;           // the one being drawn
 let drawDone = null;         // (strokes) => void, what Save does
 let drawColor = null, drawSize = 14;
 
-function openDraw(onSave, { prompt = "", saveLabel = "Add" } = {}) {
+function openDraw(onSave, { prompt = "", saveLabel = tr("Add") } = {}) {
   drawDone = onSave;
   strokes = [];
   $("draw-prompt").textContent = prompt;
@@ -976,7 +992,7 @@ $("draw-save").addEventListener("click", () => {
 async function addDrawing(list, place) {
   const png = await renderPNG(list, DRAW_MAX_SIDE, pad.width || Infinity);
   if (!png.blob) {
-    toast("Couldn't save the drawing.");
+    toast(tr("Couldn't save the drawing."));
     return null;
   }
   const aspect = round1(png.width / png.height * 100) / 100;
@@ -993,7 +1009,7 @@ async function addDrawing(list, place) {
     return data;
   } catch (err) {
     if (path) photos.remove(path).catch(() => {});
-    toast("Couldn't add the drawing: " + friendly(err));
+    toast(tr("Couldn't add the drawing: ") + friendly(err));
     return null;
   }
 }
@@ -1026,6 +1042,18 @@ async function pinToBoard(list, caption) {
   return true;
 }
 
+/** Word of the day: a note under today's board. */
+async function pinNote(body) {
+  showTab("board");
+  updateUnit();
+  await new Promise((r) => requestAnimationFrame(r));
+  const item = await createText({ x: 40, y: bottomOfToday() + 40 + TEXT_SIZE / 2 }, body);
+  if (!item) return false;
+  scheduleFit(today);
+  itemEls.get(item.id)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // GIFs & stickers, searched on GIPHY through the photos Worker (it holds the
 // API key). The board item just keeps GIPHY's link.
@@ -1046,7 +1074,7 @@ function openGifs(onPick) {
 
 function markGifType() {
   for (const b of $("gif-types").children) b.setAttribute("aria-selected", String(b.dataset.type === gifType));
-  $("gif-q").placeholder = gifType === "stickers" ? "Search stickers" : "Search GIFs";
+  $("gif-q").placeholder = gifType === "stickers" ? tr("Search stickers") : tr("Search GIFs");
   $("gif-grid").classList.toggle("stickers", gifType === "stickers");
 }
 
@@ -1061,7 +1089,7 @@ async function loadGifs(fresh) {
   if (gifNext == null || gifLoading) return;
   const seq = ++gifSeq;
   gifLoading = true;
-  $("gif-status").textContent = "Loading…";
+  $("gif-status").textContent = tr("Loading…");
   try {
     if (!PHOTOS_URL) throw new Error("GIF search needs the photos Worker (PHOTOS_URL in config.js).");
     const q = new URLSearchParams({ type: gifType, q: $("gif-q").value.trim(), offset: gifNext });
@@ -1079,7 +1107,7 @@ async function loadGifs(fresh) {
       b.append(img);
       return b;
     }));
-    $("gif-status").textContent = grid.children.length ? "" : "Nothing found.";
+    $("gif-status").textContent = grid.children.length ? "" : tr("Nothing found.");
   } catch (err) {
     if (seq === gifSeq) $("gif-status").textContent = err.message ?? String(err);
   } finally {
@@ -1122,7 +1150,7 @@ async function addGif(pos, url, ratio, kind) {
   const { data, error } = await sb.from("items")
     .insert({ kind, author_id: me.id, x: round1(x), y: round1(y), w, aspect, body: url })
     .select().single();
-  if (error) return toast(`Couldn't add the ${kind === "gif" ? "GIF" : "sticker"}: ` + friendly(error));
+  if (error) return toast(tr(kind === "gif" ? "Couldn't add the GIF: " : "Couldn't add the sticker: ") + friendly(error));
   putItem(data);
 }
 
@@ -1304,10 +1332,10 @@ $("toolbar").addEventListener("click", async (e) => {
     }
   } else if (act === "delete") {
     const what = isDrawing(it) ? "drawing" : { text: "note", photo: "photo", gif: "GIF", sticker: "sticker", audio: "voice note", video: "video" }[it.kind];
-    if (!confirm(`Delete this ${what}?`)) return;
+    if (!confirm(tr(`Delete this ${what}?`))) return;
     deselect();
     const { data, error } = await sb.from("items").delete().eq("id", it.id).select();
-    if (error || !data?.length) return toast(error ? friendly(error) : "That day is locked now, so it can't be changed.");
+    if (error || !data?.length) return toast(error ? friendly(error) : tr("That day is locked now, so it can't be changed."));
     if (it.image_path) photos.remove(it.image_path).catch(() => {});
     removeItem(it.id);
   }
@@ -1369,7 +1397,8 @@ function checkDay() {
   ensureSection(today);
   scheduleFit(prev);
   scheduleFit(today);
-  toast("Midnight! Yesterday is locked in. A fresh day begins ✨");
+  words.render();
+  toast(tr("Midnight! Yesterday is locked in. A fresh day begins ✨"));
   scheduleMidnight();
   gifts.load(); // today's boxes appear
 }
@@ -1434,6 +1463,7 @@ const sketch = createSketch({
   onChange: () => games.render(),
 });
 const games = createGames({ sb, getMe: () => me, getMembers: () => memberList, colorOf, toast, sketch });
+const words = createWords({ sb, getMe: () => me, getToday: () => today, toast, pinNote });
 const mail = createMail({ sb, getMe: () => me, getMembers: () => memberList, toast, photos, compressImage });
 const recorder = createRecorder();
 // What a gift box can hold. Each resolves to the thing picked, or null.
@@ -1442,7 +1472,7 @@ const giftPickers = {
   async photo() {
     const file = await pickFile("image/*");
     if (!file) return null;
-    if (file.type && !file.type.startsWith("image/")) throw new Error("Please pick an image.");
+    if (file.type && !file.type.startsWith("image/")) throw new Error(tr("Please pick an image."));
     const { blob, aspect } = await compressImage(file);
     return { kind: "photo", blob, aspect, ext: "jpg", type: "image/jpeg" };
   },
@@ -1450,7 +1480,7 @@ const giftPickers = {
     return new Promise((resolve) => openDraw(async (list) => {
       const png = await renderPNG(list, DRAW_MAX_SIDE, pad.width || Infinity);
       resolve(png.blob ? { kind: "photo", blob: png.blob, aspect: png.width / png.height, ext: "png", type: "image/png" } : null);
-    }, { saveLabel: "Use" }));
+    }, { saveLabel: tr("Use") }));
   },
   gif() {
     return new Promise((resolve) => openGifs((url, ratio, kind) =>

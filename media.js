@@ -5,6 +5,8 @@
 // are kept short and at a modest bitrate to stay well under the upload limit.
 // =============================================================================
 
+import { tr } from "./i18n.js";
+
 const $ = (id) => document.getElementById(id);
 
 export const MEDIA_MAX_BYTES = 30 * 1024 * 1024; // the photos Worker accepts up to this
@@ -143,8 +145,8 @@ export function createRecorder() {
         : { audio: true });
     } catch (err) {
       setStatus(err?.name === "NotAllowedError"
-        ? `Duo isn't allowed to use the ${kind === "video" ? "camera" : "microphone"}. You can allow it in Settings, or choose a file instead.`
-        : `Couldn't start the ${kind === "video" ? "camera" : "microphone"}. You can choose a file instead.`);
+        ? tr(kind === "video" ? "Duo isn't allowed to use the camera. You can allow it in Settings, or choose a file instead." : "Duo isn't allowed to use the microphone. You can allow it in Settings, or choose a file instead.")
+        : tr(kind === "video" ? "Couldn't start the camera. You can choose a file instead." : "Couldn't start the microphone. You can choose a file instead."));
       $("rec-btn").disabled = true;
       return;
     }
@@ -155,7 +157,7 @@ export function createRecorder() {
       live.classList.toggle("mirror", facing === "user");
       live.play().catch(() => {});
     }
-    setStatus(kind === "video" ? `Up to ${MAX_SECONDS.video} seconds` : `Up to ${MAX_SECONDS.audio / 60} minutes`);
+    setStatus(kind === "video" ? tr("Up to {n} seconds", { n: MAX_SECONDS.video }) : tr("Up to {n} minutes", { n: MAX_SECONDS.audio / 60 }));
   }
 
   function startRecording() {
@@ -168,7 +170,7 @@ export function createRecorder() {
         ...(kind === "video" ? { videoBitsPerSecond: 2_500_000, audioBitsPerSecond: 128_000 } : { audioBitsPerSecond: 128_000 }),
       });
     } catch {
-      return setStatus("This browser can't record here. Choose a file instead.");
+      return setStatus(tr("This browser can't record here. Choose a file instead."));
     }
     chunks = [];
     recorder.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
@@ -176,7 +178,7 @@ export function createRecorder() {
     recorder.start(1000);
     startedAt = Date.now();
     dlg.classList.add("recording");
-    $("rec-btn").setAttribute("aria-label", "Stop");
+    $("rec-btn").setAttribute("aria-label", tr("Stop"));
     $("rec-flip").disabled = true;
     $("rec-file").disabled = true;
     tick();
@@ -198,7 +200,7 @@ export function createRecorder() {
     const r = recorder;
     recorder = null;
     dlg.classList.remove("recording");
-    $("rec-btn").setAttribute("aria-label", "Record");
+    $("rec-btn").setAttribute("aria-label", tr("Record"));
     $("rec-flip").disabled = false;
     $("rec-file").disabled = false;
     if (!dlg.open) return; // closed while recording: throw it away
@@ -206,7 +208,7 @@ export function createRecorder() {
     const type = baseType(r.mimeType || chunks[0]?.type || (kind === "video" ? "video/mp4" : "audio/mp4"));
     const blob = new Blob(chunks, { type });
     chunks = [];
-    if (seconds < 0.5 || !blob.size) return setStatus("That was too short. Hold on a little longer.");
+    if (seconds < 0.5 || !blob.size) return setStatus(tr("That was too short. Hold on a little longer."));
     await review(blob, seconds);
   }
 
@@ -214,15 +216,15 @@ export function createRecorder() {
   async function review(blob, seconds) {
     const type = baseType(blob.type);
     if (!EXT[type] || !type.startsWith(kind)) {
-      return setStatus(`That file type can't be used. Try ${kind === "video" ? "an MP4 or MOV video" : "an M4A or MP3 file"}.`);
+      return setStatus(tr(kind === "video" ? "That file type can't be used. Try an MP4 or MOV video." : "That file type can't be used. Try an M4A or MP3 file."));
     }
     if (blob.size > MEDIA_MAX_BYTES) {
-      return setStatus(`That's too big (${Math.round(blob.size / 1048576)} MB, max 30). Try a shorter one.`);
+      return setStatus(tr("That's too big ({n} MB, max 30). Try a shorter one.", { n: Math.round(blob.size / 1048576) }));
     }
     const info = await inspect(blob, kind);
     const duration = info?.duration ?? seconds;
     if (duration && duration > MAX_SECONDS[kind] + 1) {
-      return setStatus(`That's too long (${fmtDuration(duration)}). Keep it under ${fmtDuration(MAX_SECONDS[kind])}.`);
+      return setStatus(tr("That's too long ({d}). Keep it under {max}.", { d: fmtDuration(duration), max: fmtDuration(MAX_SECONDS[kind]) }));
     }
     if (kind === "video") {
       stopStream(); // done with the camera
@@ -262,7 +264,7 @@ export function createRecorder() {
   $("rec-file").addEventListener("click", async () => {
     const file = await pickFile(kind === "video" ? "video/*" : "audio/*");
     if (!file || !dlg.open) return;
-    setStatus("Reading the file…");
+    setStatus(tr("Reading the file…"));
     await review(file, null);
   });
   $("rec-use").addEventListener("click", () => {
@@ -285,16 +287,16 @@ export function createRecorder() {
   function record(k) {
     if (dlg.open) dlg.close();
     kind = k;
-    $("rec-title").textContent = k === "video" ? "🎥 Video" : "🎙️ Voice note";
+    $("rec-title").textContent = k === "video" ? tr("🎥 Video") : tr("🎙️ Voice note");
     $("rec-flip").hidden = k !== "video";
     $("rec-mic").hidden = k === "video";
     live.hidden = k !== "video";
     clearReview();
-    setStatus("");
+    setStatus(tr(""));
     dlg.showModal();
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       $("rec-btn").disabled = true;
-      setStatus("Recording isn't possible in this browser. Choose a file instead.");
+      setStatus(tr("Recording isn't possible in this browser. Choose a file instead."));
     } else {
       startStream();
     }

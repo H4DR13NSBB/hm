@@ -3,16 +3,18 @@
 // Both people can edit everything; changes sync live.
 // =============================================================================
 
+import { tr, locale } from "./i18n.js";
+
 const $ = (id) => document.getElementById(id);
 
 export const KINDS = {
-  flight:    { icon: "✈️", label: "Flight" },
-  stay:      { icon: "🏨", label: "Stay" },
-  activity:  { icon: "🎟", label: "Activity" },
-  food:      { icon: "🍽", label: "Food" },
-  transport: { icon: "🚆", label: "Transport" },
-  place:     { icon: "📍", label: "Place" },
-  other:     { icon: "📝", label: "Other" },
+  flight:    { icon: "✈️", label: tr("Flight") },
+  stay:      { icon: "🏨", label: tr("Stay") },
+  activity:  { icon: "🎟", label: tr("Activity") },
+  food:      { icon: "🍽", label: tr("Food") },
+  transport: { icon: "🚆", label: tr("Transport") },
+  place:     { icon: "📍", label: tr("Place") },
+  other:     { icon: "📝", label: tr("Other") },
 };
 const CURRENCIES = ["USD", "CHF"];
 const SEGMENTS = ["plan", "ideas", "map", "packing", "money"];
@@ -37,7 +39,7 @@ function addDays(day, n) {
   return d.toISOString().slice(0, 10);
 }
 const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
-const fmt = (day, opts) => new Date(day + "T12:00:00Z").toLocaleDateString("en-GB", { timeZone: "UTC", ...opts });
+const fmt = (day, opts) => new Date(day + "T12:00:00Z").toLocaleDateString(locale, { timeZone: "UTC", ...opts });
 const fmtDay = (day) => fmt(day, { weekday: "short", day: "numeric", month: "short" });
 function fmtRange(a, b) {
   const sameYear = a.slice(0, 4) === b.slice(0, 4);
@@ -53,13 +55,13 @@ function countdown(t) {
   const today = localToday();
   if (t.start_date > today) {
     const n = daysBetween(today, t.start_date);
-    return n === 1 ? "Tomorrow" : `In ${n} days`;
+    return n === 1 ? tr("Tomorrow") : tr("In {n} days", { n });
   }
-  if (t.end_date >= today) return "Now ✈️";
+  if (t.end_date >= today) return tr("Now ✈️");
   return "";
 }
 const money = (cents, cur) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: cur }).format(Math.round(cents) / 100);
+  new Intl.NumberFormat(locale, { style: "currency", currency: cur }).format(Math.round(cents) / 100);
 const byTime = (a, b) => (a.time ?? "99").localeCompare(b.time ?? "99") || a.created_at.localeCompare(b.created_at);
 function normalizeUrl(s) {
   s = (s ?? "").trim();
@@ -198,7 +200,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
       sb.from("list_items").select("*").order("created_at"),
     ]);
     const bad = res.find((r) => r.error);
-    if (bad) return toast("Couldn't load trips: " + bad.error.message);
+    if (bad) return toast(tr("Couldn't load trips: ") + bad.error.message);
     const [t, e, x, l, li] = res.map((r) => r.data);
     for (const m of [trips, entries, expenses, packLists, packItems]) m.clear();
     t.forEach((r) => trips.set(r.id, r));
@@ -217,7 +219,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
 
   const isPackList = (listId) => [...packLists.values()].some((l) => l.id === listId);
   const entriesOf = (tid) => [...entries.values()].filter((e) => e.trip_id === tid);
-  const memberName = (id) => getMembers().find((m) => m.user_id === id)?.display_name ?? "Someone";
+  const memberName = (id) => getMembers().find((m) => m.user_id === id)?.display_name ?? tr("Someone");
 
   /** Called when the Trips tab becomes visible (the map needs a resize nudge). */
   function onShow() {
@@ -241,8 +243,8 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const past = all.filter((t) => t.end_date && t.end_date < today).sort((a, b) => b.start_date.localeCompare(a.start_date));
     const ideas = all.filter((t) => !t.start_date).sort((a, b) => a.created_at.localeCompare(b.created_at));
     const out = upcoming.map(card);
-    if (ideas.length) out.push(el("h3", "trips-subhead", "Trip ideas"), ...ideas.map(card));
-    if (past.length) out.push(el("h3", "trips-subhead", "Past trips"), ...past.map(card));
+    if (ideas.length) out.push(el("h3", "trips-subhead", tr("Trip ideas")), ...ideas.map(card));
+    if (past.length) out.push(el("h3", "trips-subhead", tr("Past trips")), ...past.map(card));
     $("trip-cards").replaceChildren(...out);
     $("trips-empty").hidden = all.length > 0;
   }
@@ -293,18 +295,18 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const out = days.map((d, i) => {
       const sec = el("section", "plan-day");
       const head = el("div", "plan-day-head");
-      head.append(el("h3", null, `Day ${i + 1}`), el("span", "muted", fmtDay(d)), addButton("Add to this day", () => openEntry({ trip_id: t.id, day: d, kind: "activity" })));
+      head.append(el("h3", null, tr("Day {n}", { n: i + 1 })), el("span", "muted", fmtDay(d)), addButton(tr("Add to this day"), () => openEntry({ trip_id: t.id, day: d, kind: "activity" })));
       sec.append(head);
       const list = mine.filter((e) => e.day === d).sort(byTime);
-      if (!list.length) sec.append(el("p", "plan-empty muted", "Nothing planned yet"));
+      if (!list.length) sec.append(el("p", "plan-empty muted", tr("Nothing planned yet")));
       list.forEach((e) => sec.append(entryCard(e)));
       return sec;
     });
-    if (!days.length) out.push(el("p", "muted center pad", "No dates yet. Edit the trip to set them, or collect ideas in the meantime."));
+    if (!days.length) out.push(el("p", "muted center pad", tr("No dates yet. Edit the trip to set them, or collect ideas in the meantime.")));
     const outside = mine.filter((e) => e.day && !days.includes(e.day)).sort((a, b) => a.day.localeCompare(b.day) || byTime(a, b));
     if (outside.length) {
       const sec = el("section", "plan-day");
-      sec.append(el("h3", "plan-outside", "Outside the trip dates"), ...outside.map((e) => entryCard(e, true)));
+      sec.append(el("h3", "plan-outside", tr("Outside the trip dates")), ...outside.map((e) => entryCard(e, true)));
       out.push(sec);
     }
     return out;
@@ -314,13 +316,13 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
   function renderIdeas(t) {
     const ideas = entriesOf(t.id).filter((e) => !e.day).sort((a, b) => a.created_at.localeCompare(b.created_at));
     const head = el("div", "seg-head");
-    head.append(el("p", "muted", "Places and things you might do. Open one and pick a day to move it into the plan."));
-    const add = el("button", "primary small", "+ Add idea");
+    head.append(el("p", "muted", tr("Places and things you might do. Open one and pick a day to move it into the plan.")));
+    const add = el("button", "primary small", tr("+ Add idea"));
     add.type = "button";
     add.addEventListener("click", () => openEntry({ trip_id: t.id, day: null, kind: "place" }));
     head.append(add);
     const out = [head];
-    if (!ideas.length) out.push(el("p", "muted center pad", "No ideas yet. Paste a Google Maps link above, or add one by hand."));
+    if (!ideas.length) out.push(el("p", "muted center pad", tr("No ideas yet. Paste a Google Maps link above, or add one by hand.")));
     ideas.forEach((e) => out.push(entryCard(e)));
     return out;
   }
@@ -335,17 +337,17 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     if (e.time) title.append(el("span", "entry-time", e.time.slice(0, 5)));
     title.append(document.createTextNode(e.title));
     main.append(title);
-    const sub = [showDay && e.day ? fmtDay(e.day) : null, e.place, e.confirmation ? `Ref ${e.confirmation}` : null].filter(Boolean);
+    const sub = [showDay && e.day ? fmtDay(e.day) : null, e.place, e.confirmation ? tr("Ref {x}", { x: e.confirmation }) : null].filter(Boolean);
     if (sub.length) main.append(el("div", "entry-sub", sub.join(" · ")));
     if (e.notes) main.append(el("div", "entry-notes", e.notes));
-    if (e.lat == null) main.append(el("div", "entry-nopin", "Not on the map"));
+    if (e.lat == null) main.append(el("div", "entry-nopin", tr("Not on the map")));
     c.append(main);
     if (e.url) {
       const a = el("a", "entry-link", "↗");
       a.href = e.url;
       a.target = "_blank";
       a.rel = "noopener";
-      a.setAttribute("aria-label", "Open link");
+      a.setAttribute("aria-label", tr("Open link"));
       a.addEventListener("click", (ev) => ev.stopPropagation());
       c.append(a);
     }
@@ -374,7 +376,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
       const s = document.createElement("script");
       s.src = LEAFLET_JS;
       s.onload = resolve;
-      s.onerror = () => { leafletPromise = null; reject(new Error("Couldn't load the map")); };
+      s.onerror = () => { leafletPromise = null; reject(new Error(tr("Couldn't load the map"))); };
       document.head.append(s);
     });
     return leafletPromise;
@@ -384,8 +386,8 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const pinned = entriesOf(t.id).filter((e) => e.lat != null && e.lng != null);
     const missing = entriesOf(t.id).length - pinned.length;
     $("trip-map-note").textContent = !pinned.length
-      ? "Nothing on the map yet. Add places in Plan or Ideas."
-      : missing ? `${missing} item${missing > 1 ? "s" : ""} without a location` : "";
+      ? tr("Nothing on the map yet. Add places in Plan or Ideas.")
+      : missing ? tr(missing > 1 ? "{n} items without a location" : "1 item without a location", { n: missing }) : "";
     $("trip-map-note").hidden = !$("trip-map-note").textContent;
 
     try { await loadLeaflet(); } catch (err) { return toast(err.message); }
@@ -411,8 +413,8 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
         iconAnchor: [18, 18],
       });
       const popup = el("div", "pin-popup");
-      popup.append(el("strong", null, e.title), el("div", "muted", e.day ? `Day ${dayIdx + 1} · ${fmtDay(e.day)}${e.time ? " · " + e.time.slice(0, 5) : ""}` : "Idea"));
-      const edit = el("button", "ghost small", "Open");
+      popup.append(el("strong", null, e.title), el("div", "muted", e.day ? `${tr("Day {n}", { n: dayIdx + 1 })} · ${fmtDay(e.day)}${e.time ? " · " + e.time.slice(0, 5) : ""}` : tr("Idea")));
+      const edit = el("button", "ghost small", tr("Open"));
       edit.type = "button";
       edit.addEventListener("click", () => openEntry(e));
       popup.append(edit);
@@ -431,11 +433,11 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const items = list ? [...packItems.values()].filter((i) => i.list_id === list.id) : [];
     const open = items.filter((i) => !i.done).sort((a, b) => a.created_at.localeCompare(b.created_at));
     const done = items.filter((i) => i.done).sort((a, b) => a.created_at.localeCompare(b.created_at));
-    if (!items.length) return [el("p", "muted center pad", "Nothing on the packing list yet. Add things below.")];
+    if (!items.length) return [el("p", "muted center pad", tr("Nothing on the packing list yet. Add things below."))];
     const ul = el("ul", "entries");
     ul.append(...open.map(packRow), ...done.map(packRow));
     const out = [ul];
-    if (done.length) out.push(el("p", "muted small-note", `${done.length} of ${items.length} packed`));
+    if (done.length) out.push(el("p", "muted small-note", tr("{n} of {total} packed", { n: done.length, total: items.length })));
     return out;
   }
 
@@ -444,24 +446,24 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     li.style.setProperty("--c", colorOf.get(it.added_by) ?? "var(--muted)");
     const check = el("button", "check");
     check.type = "button";
-    check.setAttribute("aria-label", it.done ? "Mark as not packed" : "Mark as packed");
+    check.setAttribute("aria-label", it.done ? tr("Mark as not packed") : tr("Mark as packed"));
     check.innerHTML = "<span>✓</span>";
     check.addEventListener("click", async () => {
       const done = !it.done;
       Object.assign(it, { done, done_at: done ? new Date().toISOString() : null });
       render();
       const { error } = await sb.from("list_items").update({ done: it.done, done_at: it.done_at }).eq("id", it.id);
-      if (error) { toast("Couldn't save: " + error.message); load(); }
+      if (error) { toast(tr("Couldn't save: ") + error.message); load(); }
     });
     const text = el("span", "entry-text static", it.body);
     const del = el("button", "entry-del", "✕");
     del.type = "button";
-    del.setAttribute("aria-label", "Delete");
+    del.setAttribute("aria-label", tr("Delete"));
     del.addEventListener("click", async () => {
       packItems.delete(it.id);
       render();
       const { error } = await sb.from("list_items").delete().eq("id", it.id);
-      if (error) { toast("Couldn't delete: " + error.message); load(); }
+      if (error) { toast(tr("Couldn't delete: ") + error.message); load(); }
     });
     li.append(check, text, del);
     return li;
@@ -477,15 +479,15 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     let list = packLists.get(t.id);
     if (!list) {
       const { data, error } = await sb.from("lists")
-        .insert({ name: `Packing: ${t.name}`.slice(0, 60), trip_id: t.id, created_by: getMe().id })
+        .insert({ name: tr("Packing: {name}", { name: t.name }).slice(0, 60), trip_id: t.id, created_by: getMe().id })
         .select().single();
-      if (error) { input.value = body; return toast("Couldn't create the packing list: " + error.message); }
+      if (error) { input.value = body; return toast(tr("Couldn't create the packing list: ") + error.message); }
       list = data;
       packLists.set(t.id, list);
     }
     const { data, error } = await sb.from("list_items")
       .insert({ list_id: list.id, body, added_by: getMe().id }).select().single();
-    if (error) { input.value = body; return toast("Couldn't add: " + error.message); }
+    if (error) { input.value = body; return toast(tr("Couldn't add: ") + error.message); }
     packItems.set(data.id, data);
     render();
   });
@@ -510,19 +512,19 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const out = [];
     const sums = balances(t);
     const box = el("div", "money-summary");
-    if (!sums.length) box.append(el("p", "muted", "No expenses yet. Everything is split 50/50."));
+    if (!sums.length) box.append(el("p", "muted", tr("No expenses yet. Everything is split 50/50.")));
     for (const s of sums) {
       const row = el("div", "money-line");
       const left = el("div");
       const square = Math.abs(s.owedToA) < 1;
       const [debtor, creditor] = s.owedToA > 0 ? [s.b, s.a] : [s.a, s.b];
       left.append(
-        el("div", "money-balance", square ? `${s.cur}: all square ✓` : `${debtor?.display_name ?? "?"} owes ${creditor?.display_name ?? "?"} ${money(Math.abs(s.owedToA), s.cur)}`),
-        el("div", "muted", `Total spent ${money(s.total, s.cur)}`),
+        el("div", "money-balance", square ? tr("{cur}: all square ✓", { cur: s.cur }) : tr("{a} owes {b} {amount}", { a: debtor?.display_name ?? "?", b: creditor?.display_name ?? "?", amount: money(Math.abs(s.owedToA), s.cur) })),
+        el("div", "muted", tr("Total spent {amount}", { amount: money(s.total, s.cur) })),
       );
       row.append(left);
       if (!square && debtor && creditor) {
-        const settle = el("button", "small", "Settle up");
+        const settle = el("button", "small", tr("Settle up"));
         settle.type = "button";
         settle.addEventListener("click", () => openExpense({
           trip_id: t.id, kind: "settlement", paid_by: debtor.user_id,
@@ -534,7 +536,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     }
     out.push(box);
 
-    const add = el("button", "primary small add-expense", "+ Add expense");
+    const add = el("button", "primary small add-expense", tr("+ Add expense"));
     add.type = "button";
     add.addEventListener("click", () => openExpense({ trip_id: t.id }));
     out.push(add);
@@ -549,8 +551,8 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
       const left = el("div", "expense-main");
       const settle = x.kind === "settlement";
       left.append(
-        el("div", "expense-title", settle ? `💸 ${memberName(x.paid_by)} paid back` : (x.note || "Expense")),
-        el("div", "muted", `${settle ? "" : memberName(x.paid_by) + " paid · "}${fmtDay(x.spent_on)}`),
+        el("div", "expense-title", settle ? tr("💸 {name} paid back", { name: memberName(x.paid_by) }) : (x.note || tr("Expense"))),
+        el("div", "muted", `${settle ? "" : tr("{name} paid", { name: memberName(x.paid_by) }) + " · "}${fmtDay(x.spent_on)}`),
       );
       r.append(left, el("div", "expense-amount", money(x.amount_cents, x.currency)));
       r.addEventListener("click", () => openExpense(x));
@@ -603,7 +605,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     f.tstart.value = t?.start_date ?? "";
     f.tend.value = t?.end_date ?? "";
     $("trip-delete").hidden = !t;
-    $("trip-dialog-title").textContent = t ? "Edit trip" : "New trip";
+    $("trip-dialog-title").textContent = t ? tr("Edit trip") : tr("New trip");
     $("trip-dialog").showModal();
   }
   $("trip-form").elements.tstart.addEventListener("change", (e) => {
@@ -622,17 +624,17 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
       hue: pickedHue,
     };
     if (!row.name) return;
-    if (row.end_date < row.start_date) return toast("The trip ends before it starts.");
-    if (row.start_date && daysBetween(row.start_date, row.end_date) > 90) return toast("Trips can be at most 90 days long.");
+    if (row.end_date < row.start_date) return toast(tr("The trip ends before it starts."));
+    if (row.start_date && daysBetween(row.start_date, row.end_date) > 90) return toast(tr("Trips can be at most 90 days long."));
     $("trip-dialog").close();
     if (editingTrip) {
       const { data, error } = await sb.from("trips").update(row).eq("id", editingTrip.id).select().single();
-      if (error) return toast("Couldn't save: " + error.message);
+      if (error) return toast(tr("Couldn't save: ") + error.message);
       trips.set(data.id, data);
       render();
     } else {
       const { data, error } = await sb.from("trips").insert({ ...row, created_by: getMe().id }).select().single();
-      if (error) return toast("Couldn't create the trip: " + error.message);
+      if (error) return toast(tr("Couldn't create the trip: ") + error.message);
       trips.set(data.id, data);
       segment = "plan";
       openTrip(data.id);
@@ -640,10 +642,10 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
   });
   $("trip-delete").addEventListener("click", async () => {
     const t = editingTrip;
-    if (!t || !confirm(`Delete "${t.name}" with its whole plan, ideas, packing list and expenses?`)) return;
+    if (!t || !confirm(tr('Delete "{name}" with its whole plan, ideas, packing list and expenses?', { name: t.name }))) return;
     $("trip-dialog").close();
     const { error } = await sb.from("trips").delete().eq("id", t.id);
-    if (error) return toast("Couldn't delete: " + error.message);
+    if (error) return toast(tr("Couldn't delete: ") + error.message);
     trips.delete(t.id);
     for (const [id, e] of entries) if (e.trip_id === t.id) entries.delete(id);
     for (const [id, x] of expenses) if (x.trip_id === t.id) expenses.delete(id);
@@ -664,7 +666,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     f.ekind.value = e.kind ?? "activity";
     f.etitle.value = e.title ?? "";
     const days = tripDays(t);
-    f.eday.replaceChildren(new Option("💡 Idea (no day yet)", ""), ...days.map((d, i) => new Option(`Day ${i + 1} · ${fmtDay(d)}`, d)));
+    f.eday.replaceChildren(new Option(tr("💡 Idea (no day yet)"), ""), ...days.map((d, i) => new Option(`${tr("Day {n}", { n: i + 1 })} · ${fmtDay(d)}`, d)));
     if (e.day && !days.includes(e.day)) f.eday.append(new Option(fmtDay(e.day), e.day));
     f.eday.value = e.day ?? "";
     f.etime.value = e.time?.slice(0, 5) ?? "";
@@ -673,7 +675,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     f.econf.value = e.confirmation ?? "";
     f.enotes.value = e.notes ?? "";
     $("entry-delete").hidden = !editingEntry;
-    $("entry-dialog-title").textContent = editingEntry ? "Edit" : e.day ? "Add to the plan" : "Add an idea";
+    $("entry-dialog-title").textContent = editingEntry ? tr("Edit") : e.day ? tr("Add to the plan") : tr("Add an idea");
     updatePinStatus();
     $("entry-dialog").showModal();
   }
@@ -681,18 +683,18 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
   function updatePinStatus(msg) {
     const s = $("entry-pin");
     if (msg) s.textContent = msg;
-    else if (draftPin.lat != null) s.textContent = `📍 On the map${draftPin.label ? ": " + draftPin.label.split(",").slice(0, 3).join(",") : ""}`;
-    else s.textContent = "Not on the map yet. Type a place and tap Find.";
+    else if (draftPin.lat != null) s.textContent = `📍 ${tr("On the map")}${draftPin.label ? ": " + draftPin.label.split(",").slice(0, 3).join(",") : ""}`;
+    else s.textContent = tr("Not on the map yet. Type a place and tap Find.");
     $("entry-unpin").hidden = draftPin.lat == null;
   }
 
   $("entry-find").addEventListener("click", async () => {
     const f = $("entry-form").elements;
     const q = f.eplace.value.trim() || f.etitle.value.trim();
-    if (!q) return updatePinStatus("Type a place or a title first.");
-    updatePinStatus("Searching…");
+    if (!q) return updatePinStatus(tr("Type a place or a title first."));
+    updatePinStatus(tr("Searching…"));
     const hit = await geocode(q, trips.get(currentId)?.destination);
-    if (!hit) return updatePinStatus("Couldn't find that. Try adding the city, or a full address.");
+    if (!hit) return updatePinStatus(tr("Couldn't find that. Try adding the city, or a full address."));
     draftPin = hit;
     updatePinStatus();
   });
@@ -722,7 +724,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const { data, error } = editingEntry
       ? await sb.from("trip_entries").update(row).eq("id", editingEntry.id).select().single()
       : await sb.from("trip_entries").insert({ ...row, trip_id: tripId, created_by: getMe().id }).select().single();
-    if (error) return toast("Couldn't save: " + error.message);
+    if (error) return toast(tr("Couldn't save: ") + error.message);
     entries.set(data.id, data);
     render();
     // Has a place but no pin? Try to find it quietly in the background.
@@ -737,10 +739,10 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
 
   $("entry-delete").addEventListener("click", async () => {
     const e = editingEntry;
-    if (!e || !confirm(`Delete "${e.title}"?`)) return;
+    if (!e || !confirm(tr('Delete "{x}"?', { x: e.title }))) return;
     $("entry-dialog").close();
     const { error } = await sb.from("trip_entries").delete().eq("id", e.id);
-    if (error) return toast("Couldn't delete: " + error.message);
+    if (error) return toast(tr("Couldn't delete: ") + error.message);
     entries.delete(e.id);
     render();
   });
@@ -752,7 +754,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const shared = parseSharedText(text);
     if (!shared.url && !shared.title) return;
     $("idea-paste-btn").disabled = true;
-    $("idea-paste-btn").textContent = "Looking up…";
+    $("idea-paste-btn").textContent = tr("Looking up…");
     try {
       let info = shared.url ? infoFromMapsUrl(shared.url) : {};
       let host = "";
@@ -776,10 +778,10 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
       if (draft.lat != null && !draft.place) draft.place = await reverseGeocode(draft.lat, draft.lng);
       $("idea-paste-input").value = "";
       openEntry(draft);
-      if (!title) updatePinStatus("Couldn't read the place name from that link. Type it in and tap Find.");
+      if (!title) updatePinStatus(tr("Couldn't read the place name from that link. Type it in and tap Find."));
     } finally {
       $("idea-paste-btn").disabled = false;
-      $("idea-paste-btn").textContent = "Look up";
+      $("idea-paste-btn").textContent = tr("Look up");
     }
   }
   $("idea-paste").addEventListener("submit", (e) => {
@@ -810,14 +812,14 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     f.xdate.value = x.spent_on ?? (today >= t.start_date && today <= t.end_date ? today : today);
     f.xsettle.checked = x.kind === "settlement";
     $("expense-delete").hidden = !editingExpense;
-    $("expense-dialog-title").textContent = editingExpense ? "Edit expense" : x.kind === "settlement" ? "Settle up" : "Add expense";
+    $("expense-dialog-title").textContent = editingExpense ? tr("Edit expense") : x.kind === "settlement" ? tr("Settle up") : tr("Add expense");
     $("expense-dialog").showModal();
   }
   $("expense-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.target.elements;
     const amount = Math.round(parseFloat(f.xamount.value.replace(",", ".")) * 100);
-    if (!(amount > 0)) return toast("Enter an amount.");
+    if (!(amount > 0)) return toast(tr("Enter an amount."));
     const row = {
       kind: f.xsettle.checked ? "settlement" : "expense",
       paid_by: f.xpaid.value,
@@ -830,16 +832,16 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const { data, error } = editingExpense
       ? await sb.from("trip_expenses").update(row).eq("id", editingExpense.id).select().single()
       : await sb.from("trip_expenses").insert({ ...row, trip_id: currentId, created_by: getMe().id }).select().single();
-    if (error) return toast("Couldn't save: " + error.message);
+    if (error) return toast(tr("Couldn't save: ") + error.message);
     expenses.set(data.id, data);
     render();
   });
   $("expense-delete").addEventListener("click", async () => {
     const x = editingExpense;
-    if (!x || !confirm("Delete this expense?")) return;
+    if (!x || !confirm(tr("Delete this expense?"))) return;
     $("expense-dialog").close();
     const { error } = await sb.from("trip_expenses").delete().eq("id", x.id);
-    if (error) return toast("Couldn't delete: " + error.message);
+    if (error) return toast(tr("Couldn't delete: ") + error.message);
     expenses.delete(x.id);
     render();
   });

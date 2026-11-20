@@ -19,6 +19,8 @@ duo/
 ├── questions-data.js       the built-in question deck
 ├── games.js                Games tab
 ├── sketch.js               Draw & Guess (inside the Games tab)
+├── words.js                French word of the day (top of the Games tab)
+├── words-data.js           the word deck
 ├── drawing.js              painting pad strokes (board drawings + Draw & Guess)
 ├── media.js                recording + playing voice notes and videos
 ├── gifts.js                gift boxes (advent calendar, birthdays, anniversary)
@@ -80,6 +82,10 @@ duo/
   **Draw & Guess:** pick one of three words (or your own) and draw it; the other person watches it being
   drawn again stroke by stroke and guesses. After three wrong guesses the first letter is shown. Drawings are
   kept as pen strokes, so once a round is over either of you can **put it on today's board**, with a caption.
+  **Word of the day** (`words.js`, deck in `words-data.js`): a French word and its translation at the top of the tab,
+  with 🔊 to hear it. You both get the same word each day. **I knew this one** sets it aside (for you, on that
+  device) and rolls another. **Save** adds it to a shared "French words" list in Lists; **Pin** puts it on today's board.
+  Only ever add words at the end of `words-data.js`: known words are stored by position.
 
 - **Mail** (`mail.js`): send each other postcards. Each side can have a photo, text or both, on a background
   colour you pick; the back is a classic postcard with your message on the left and a stamp you choose on the right

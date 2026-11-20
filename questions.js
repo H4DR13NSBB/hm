@@ -6,6 +6,7 @@
 // =============================================================================
 
 import { DEPTHS, BUILT_IN } from "./questions-data.js";
+import { tr } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const DEPTHS_KEY = "duo-q-depths";
@@ -73,7 +74,7 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
     ]);
     const err = q.error ?? m.error;
     missing = !!err && /does not exist|schema cache|unknown table/i.test(err.message);
-    if (err && !missing) toast("Couldn't load questions: " + err.message);
+    if (err && !missing) toast(tr("Couldn't load questions: ") + err.message);
     if (err) return render();
     custom.clear();
     marks.clear();
@@ -119,7 +120,7 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
       b.querySelector("b").textContent = d.name;
       b.querySelector(".q-depth-blurb").textContent = d.blurb;
       b.querySelector(".q-depth-count").textContent =
-        left === inDepth.length ? `${left} questions` : `${left} of ${inDepth.length} left`;
+        left === inDepth.length ? tr("{n} questions", { n: left }) : tr("{n} of {total} left", { n: left, total: inDepth.length });
       b.addEventListener("click", () => {
         if (selected.has(d.id)) selected.delete(d.id); else selected.add(d.id);
         try { localStorage.setItem(DEPTHS_KEY, JSON.stringify([...selected])); } catch {}
@@ -130,8 +131,8 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
 
     const n = pool().length;
     $("q-start").disabled = n === 0;
-    $("q-start").textContent = !selected.size ? "Pick at least one depth"
-      : n ? `Start · ${n} question${n > 1 ? "s" : ""}` : "You've answered all of these 🎉";
+    $("q-start").textContent = !selected.size ? tr("Pick at least one depth")
+      : n ? tr(n > 1 ? "Start · {n} questions" : "Start · 1 question", { n }) : tr("You've answered all of these 🎉");
     $("q-saved-count").textContent = withStatus("saved").length;
     $("q-answered-count").textContent = withStatus("answered").length;
     $("q-ours-count").textContent = custom.size;
@@ -177,7 +178,7 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
     $("q-card-dots").innerHTML = dotsHTML(d.depth);
     $("q-card-text").textContent = q.text;
     const st = statusOf(q);
-    $("q-card-note").textContent = st === "saved" ? "🔖 Saved for later" : st === "answered" ? "✓ Answered before" : "";
+    $("q-card-note").textContent = st === "saved" ? tr("🔖 Saved for later") : st === "answered" ? tr("✓ Answered before") : "";
     $("q-save").setAttribute("aria-pressed", String(st === "saved"));
     $("q-stamp-yes").style.opacity = $("q-stamp-no").style.opacity = 0;
   }
@@ -185,8 +186,8 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
   function finish() {
     showView("done");
     const count = (a) => history.filter((h) => h.action === a).length;
-    const parts = [`${count("answered")} answered`, `${count("skip")} skipped`];
-    if (count("saved")) parts.push(`${count("saved")} saved for later`);
+    const parts = [tr("{n} answered", { n: count("answered") }), tr("{n} skipped", { n: count("skip") })];
+    if (count("saved")) parts.push(tr("{n} saved for later", { n: count("saved") }));
     $("q-done-summary").textContent = parts.join(" · ");
     $("q-again").hidden = count("skip") === 0;
   }
@@ -239,7 +240,7 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
     }
     if (res.error) {
       if (before) marks.set(key, before);
-      toast("Couldn't save: " + res.error.message);
+      toast(tr("Couldn't save: ") + res.error.message);
     }
     render();
   }
@@ -253,7 +254,7 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
     if (error) {
       marks.set(key, before);
       render();
-      toast("Couldn't save: " + error.message);
+      toast(tr("Couldn't save: ") + error.message);
     }
   }
 
@@ -311,7 +312,7 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
   $("q-again").addEventListener("click", () => play(history.filter((h) => h.action === "skip").map((h) => h.q)));
   $("q-play-saved").addEventListener("click", () => {
     const saved = withStatus("saved");
-    if (!saved.length) return toast("Nothing saved yet. Tap 🔖 on a card to keep it for later.");
+    if (!saved.length) return toast(tr("Nothing saved yet. Tap 🔖 on a card to keep it for later."));
     $("q-library").close();
     play(saved);
   });
@@ -340,11 +341,11 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
     let rows, empty;
     if (libSeg === "ours") {
       rows = [...custom.values()].reverse().map(customQ);
-      empty = "No questions of your own yet. Write one above.";
+      empty = tr("No questions of your own yet. Write one above.");
     } else {
       rows = withStatus(libSeg);
-      empty = libSeg === "saved" ? "Nothing saved yet. Tap 🔖 on a card to keep it for later."
-        : "Nothing answered yet. Swipe a card right once you've both answered it.";
+      empty = libSeg === "saved" ? tr("Nothing saved yet. Tap 🔖 on a card to keep it for later.")
+        : tr("Nothing answered yet. Swipe a card right once you've both answered it.");
     }
     $("q-lib-empty").textContent = empty;
     $("q-lib-empty").hidden = rows.length > 0;
@@ -362,13 +363,13 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
       text.append(meta);
       if (libSeg === "ours") {
         text.type = "button";
-        text.title = "Edit";
+        text.title = tr("Edit");
         text.addEventListener("click", () => openEditor(q.text, (body) => editCustom(q.row, body)));
       }
       const del = document.createElement("button");
       del.type = "button";
       del.className = "entry-del";
-      del.setAttribute("aria-label", libSeg === "ours" ? "Delete question" : libSeg === "saved" ? "Unsave" : "Mark as not answered");
+      del.setAttribute("aria-label", libSeg === "ours" ? tr("Delete question") : libSeg === "saved" ? tr("Unsave") : tr("Mark as not answered"));
       del.textContent = "✕";
       del.addEventListener("click", () => {
         if (libSeg === "ours") deleteCustom(q.row);
@@ -390,7 +391,7 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
     const { data, error } = await sb.from("questions").insert({ depth, body: body.slice(0, 300), added_by: getMe().id }).select().single();
     if (error) {
       $("q-new-text").value = body;
-      return toast("Couldn't add: " + error.message);
+      return toast(tr("Couldn't add: ") + error.message);
     }
     custom.set(data.id, data);
     render();
@@ -404,19 +405,19 @@ export function createQuestions({ sb, getMe, getMembers, colorOf, toast, openEdi
     if (error) {
       row.body = before;
       render();
-      toast("Couldn't save: " + error.message);
+      toast(tr("Couldn't save: ") + error.message);
     }
   }
 
   async function deleteCustom(row) {
-    if (!confirm(`Delete "${row.body}"?`)) return;
+    if (!confirm(tr('Delete "{x}"?', { x: row.body }))) return;
     custom.delete(row.id);
     render();
     const { error } = await sb.from("questions").delete().eq("id", row.id);
     if (error) {
       custom.set(row.id, row);
       render();
-      return toast("Couldn't delete: " + error.message);
+      return toast(tr("Couldn't delete: ") + error.message);
     }
     clearMark("c" + row.id);
   }
