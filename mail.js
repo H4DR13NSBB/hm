@@ -21,7 +21,9 @@ export const STAMPS = [
   { id: "wave",   emoji: "🌊", label: "Seaside",    value: "1.30", color: "#2a8fa3" },
   { id: "cat",    emoji: "🐈", label: "Cat post",   value: "2.00", color: "#8467bf" },
 ];
-const SWATCHES = ["#ffd6a5", "#fdffb6", "#caffbf", "#9bf6ff", "#bdb2ff", "#ffadad", "#fbf7ef", "#1f2a44"];
+const STAMP_COLORS = [...new Set(STAMPS.map((s) => s.color))];
+const CUSTOM_KEY = "duo-mail-stamp"; // last home-made stamp (not the picture), to reuse next time
+const SWATCHES =["#ffd6a5", "#fdffb6", "#caffbf", "#9bf6ff", "#bdb2ff", "#ffadad", "#fbf7ef", "#1f2a44"];
 const FRONT_BG = SWATCHES[0];
 const BACK_BG = "#fbf7ef";
 const LIMITS = { front: 200, back: 500 };
@@ -50,8 +52,8 @@ function since(ts) {
 const daysInPost = (c) => Math.max(1, Math.round((Date.parse(c.delivers_at) - Date.parse(c.sent_at)) / DAY));
 
 // ---------- drawing a postcard ----------
-function imgEl(ref) {
-  const img = el("img", "pc-img");
+function imgEl(ref, cls = "pc-img") {
+  const img = el("img", cls);
   img.alt = "";
   img.decoding = "async";
   if (/^(blob|data):/.test(ref)) img.src = ref; // unsent draft
@@ -59,12 +61,16 @@ function imgEl(ref) {
   return img;
 }
 
-function stampEl(id) {
-  const s = STAMPS.find((x) => x.id === id) ?? STAMPS[0];
+/** spec = a preset id, or a home-made { emoji, label, value, color, img } */
+function stampEl(spec) {
+  const s = spec && typeof spec === "object" ? spec : STAMPS.find((x) => x.id === spec) ?? STAMPS[0];
   const stamp = el("div", "stamp");
-  stamp.style.setProperty("--sc", s.color);
+  stamp.style.setProperty("--sc", s.color || STAMPS[0].color);
   const art = el("div", "stamp-art");
-  art.append(el("span", "stamp-value", s.value), el("span", "stamp-emoji", s.emoji), el("span", "stamp-label", s.label));
+  if (s.img) { art.classList.add("has-img"); art.append(imgEl(s.img, "stamp-img")); }
+  else if (s.emoji) art.append(el("span", "stamp-emoji", s.emoji));
+  if (s.value) art.append(el("span", "stamp-value", s.value));
+  if (s.label) art.append(el("span", "stamp-label", s.label));
   stamp.append(art);
   return stamp;
 }
@@ -181,7 +187,9 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
   const model = (c) => ({
     front: { img: c.front_image, text: c.front_text, bg: c.front_bg },
     back: { img: c.back_image, text: c.back_text, bg: c.back_bg },
-    stamp: c.stamp, toName: nameOf(c.to_id), postmark: c.sent_at,
+    stamp: c.stamp !== "custom" ? c.stamp
+      : { emoji: c.stamp_emoji, label: c.stamp_label, value: c.stamp_value, color: c.stamp_color, img: c.stamp_image },
+    toName: nameOf(c.to_id), postmark: c.sent_at,
   });
 
   async function loadImages(root) {
@@ -357,17 +365,37 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
   });
 
   // ---------- writing a postcard ----------
+  function lastCustom() {
+    const c = { emoji: "", label: "", value: "", color: STAMP_COLORS[0], blob: null, img: null };
+    try {
+      const saved = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}");
+      for (const k of ["emoji", "label", "value", "color"]) if (typeof saved[k] === "string") c[k] = saved[k];
+    } catch {}
+    return c;
+  }
+  function saveCustom() {
+    const { emoji, label, value, color } = draft.custom;
+    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify({ emoji, label, value, color })); } catch {}
+  }
+
   const newDraft = () => ({
     side: "front",
     stamp: STAMPS[0].id,
+    custom: lastCustom(),
     front: { blob: null, img: null, text: "", bg: FRONT_BG },
     back: { blob: null, img: null, text: "", bg: BACK_BG },
   });
   let previewCard = null;
+  let fileFor = "side"; // the photo picker is shared: "side" or "stamp"
+
+  /** What goes on the card: a preset id, or the home-made stamp */
+  const draftStamp = () => draft.stamp === "custom" ? draft.custom : draft.stamp;
+  const customIsBlank = () => { const c = draft.custom; return !c.img && !c.emoji.trim() && !c.label.trim() && !c.value.trim(); };
+  const ownTile = () => customIsBlank() ? { emoji: "＋", label: "Your own", color: draft.custom.color } : draft.custom;
 
   function discardDraft() {
     if (!draft) return;
-    for (const s of [draft.front, draft.back]) if (s.img) URL.revokeObjectURL(s.img);
+    for (const s of [draft.front, draft.back, draft.custom]) if (s.img) URL.revokeObjectURL(s.img);
     draft = null;
   }
   const draftIsEmpty = () => !draft || [draft.front, draft.back].every((s) => !s.blob && !s.text.trim());
@@ -391,7 +419,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     if (!previewCard || !draft) return;
     fillFront(previewCard.querySelector(".pc-front"), draft.front, { hint: true });
     fillBack(previewCard.querySelector(".pc-back"), draft.back,
-      { stamp: draft.stamp, toName: recipient()?.display_name ?? "", hint: true });
+      { stamp: draftStamp(), toName: recipient()?.display_name ?? "", hint: true });
   }
 
   function setSide(side) {
@@ -425,21 +453,63 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
   }
 
   function renderStamps() {
-    $("pc-stamps").replaceChildren(...STAMPS.map((st) => {
+    const opt = (id, label, spec) => {
       const b = el("button", "stamp-opt");
       b.type = "button";
-      b.setAttribute("aria-label", `${st.label} stamp`);
-      b.setAttribute("aria-pressed", String(st.id === draft.stamp));
-      b.append(stampEl(st.id));
+      b.setAttribute("aria-label", label);
+      b.setAttribute("aria-pressed", String(id === draft.stamp));
+      b.append(stampEl(spec));
       b.addEventListener("click", () => {
-        draft.stamp = st.id;
+        draft.stamp = id;
         renderStamps();
         refreshPreview();
         if (draft.side !== "back") setSide("back"); // show where the stamp goes
       });
       return b;
+    };
+    $("pc-stamps").replaceChildren(opt("custom", "Make your own stamp", ownTile()),
+      ...STAMPS.map((st) => opt(st.id, `${st.label} stamp`, st.id)));
+    renderStampEditor();
+  }
+
+  function renderStampEditor() {
+    const c = draft.custom;
+    $("pc-stamp-edit").hidden = draft.stamp !== "custom";
+    $("pc-st-emoji").value = c.emoji;
+    $("pc-st-label").value = c.label;
+    $("pc-st-value").value = c.value;
+    $("pc-st-photo").textContent = c.img ? "🖼️ Change picture" : "🖼️ Use a picture";
+    $("pc-st-photo-remove").hidden = !c.img;
+    $("pc-st-colors").replaceChildren(...STAMP_COLORS.map((col) => {
+      const b = el("button", "swatch");
+      b.type = "button";
+      b.style.setProperty("--sw", col);
+      b.setAttribute("aria-label", `Stamp colour ${col}`);
+      b.setAttribute("aria-pressed", String(col === c.color));
+      b.addEventListener("click", () => { c.color = col; saveCustom(); renderStamps(); refreshPreview(); });
+      return b;
     }));
   }
+
+  // typing only refreshes the stamps, so the input keeps focus
+  for (const [id, key] of [["pc-st-emoji", "emoji"], ["pc-st-label", "label"], ["pc-st-value", "value"]]) {
+    $(id).addEventListener("input", (e) => {
+      if (!draft) return;
+      draft.custom[key] = e.target.value;
+      saveCustom();
+      $("pc-stamps").firstElementChild.replaceChildren(stampEl(ownTile()));
+      refreshPreview();
+    });
+  }
+
+  $("pc-st-photo").addEventListener("click", () => { fileFor = "stamp"; $("pc-file").click(); });
+  $("pc-st-photo-remove").addEventListener("click", () => {
+    const c = draft.custom;
+    if (c.img) URL.revokeObjectURL(c.img);
+    c.blob = c.img = null;
+    renderStamps();
+    refreshPreview();
+  });
 
   $("pc-sides").addEventListener("click", (e) => {
     const side = e.target.closest("[data-side]")?.dataset.side;
@@ -452,7 +522,7 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     refreshPreview();
   });
 
-  $("pc-photo").addEventListener("click", () => $("pc-file").click());
+  $("pc-photo").addEventListener("click", () => { fileFor = "side"; $("pc-file").click(); });
   $("pc-photo-remove").addEventListener("click", () => {
     const s = draft[draft.side];
     if (s.img) URL.revokeObjectURL(s.img);
@@ -465,13 +535,14 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
     e.target.value = "";
     if (!file || !draft) return;
     if (file.type && !file.type.startsWith("image/")) return toast("Please pick an image.");
-    const s = draft[draft.side];
+    const forStamp = fileFor === "stamp";
+    const s = forStamp ? draft.custom : draft[draft.side];
     try {
       const { blob } = await compressImage(file);
       if (s.img) URL.revokeObjectURL(s.img);
       s.blob = blob;
       s.img = URL.createObjectURL(blob);
-      renderSide();
+      if (forStamp) renderStamps(); else renderSide();
       refreshPreview();
     } catch (err) {
       toast(err.message ?? "Couldn't read that image.");
@@ -494,6 +565,11 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
       setSide("front");
       return toast("The front is empty: add a photo or some words.");
     }
+    const custom = draft.stamp === "custom" ? draft.custom : null;
+    if (custom && customIsBlank()) {
+      setSide("back");
+      return toast("Your stamp is blank: give it an emoji, some text or a picture.");
+    }
     if (!confirm(`Post this to ${to.display_name}?\nIt will take somewhere between 2 and 15 days to arrive, and once it's in the post you can't get it back.`)) return;
 
     const btn = $("pc-send");
@@ -509,9 +585,14 @@ export function createMail({ sb, getMe, getMembers, toast, photos, compressImage
       };
       const front_image = await up(front);
       const back_image = await up(back);
+      const stamp_image = custom ? await up(custom) : null;
       const { data, error } = await sb.from("postcards").insert({
         to_id: to.user_id,
         stamp: draft.stamp,
+        ...(custom && {
+          stamp_emoji: custom.emoji.trim() || null, stamp_label: custom.label.trim() || null,
+          stamp_value: custom.value.trim() || null, stamp_color: custom.color, stamp_image,
+        }),
         front_image, front_text: front.text.trim() || null, front_bg: front.bg,
         back_image, back_text: back.text.trim() || null, back_bg: back.bg,
       }).select().single();

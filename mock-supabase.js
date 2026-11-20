@@ -33,9 +33,9 @@ const TABLES = {
     fields: ["list_id", "body"], required: ["list_id", "body"], defaults: { done: false, done_at: null },
   },
   trips: {
-    key: "duo-demo-trips", editable: ["name", "destination", "start_date", "end_date"], by: "created_by",
-    fields: ["name", "destination", "start_date", "end_date"], required: ["name", "start_date", "end_date"],
-    defaults: { destination: null },
+    key: "duo-demo-trips", editable: ["name", "destination", "start_date", "end_date", "hue"], by: "created_by",
+    fields: ["name", "destination", "start_date", "end_date", "hue"], required: ["name"],
+    defaults: { destination: null, start_date: null, end_date: null, hue: null },
   },
   trip_entries: {
     key: "duo-demo-trip-entries", editable: ENTRY_COLS, by: "created_by",
@@ -47,11 +47,28 @@ const TABLES = {
     fields: ["trip_id", ...EXPENSE_COLS], required: ["trip_id", "paid_by", "amount_cents", "currency"],
     defaults: { kind: "expense", note: null },
   },
+  questions: {
+    key: "duo-demo-questions", editable: ["depth", "body"], by: "added_by",
+    fields: ["depth", "body"], required: ["depth", "body"], defaults: {},
+  },
+  question_marks: {
+    key: "duo-demo-question-marks", editable: ["status", "marked_at"], by: "marked_by",
+    fields: ["question_key", "status", "marked_at"], required: ["question_key", "status"], defaults: {},
+  },
+  games: {
+    key: "duo-demo-games", editable: ["cells", "moves", "winner", "next_id"], by: "created_by",
+    fields: ["kind", "cells", "x_id", "o_id", "next_id", "moves"], required: ["kind", "cells", "x_id", "o_id", "next_id"],
+    defaults: { moves: 0, winner: null },
+  },
   postcards: {
     key: "duo-demo-postcards", editable: [], by: "from_id",
-    fields: ["to_id", "stamp", "front_image", "front_text", "front_bg", "back_image", "back_text", "back_bg"],
+    fields: ["to_id", "stamp", "front_image", "front_text", "front_bg", "back_image", "back_text", "back_bg",
+      "stamp_emoji", "stamp_label", "stamp_value", "stamp_color", "stamp_image"],
     required: ["to_id", "stamp"],
-    defaults: { front_image: null, front_text: null, front_bg: null, back_image: null, back_text: null, back_bg: null, read_at: null },
+    defaults: {
+      front_image: null, front_text: null, front_bg: null, back_image: null, back_text: null, back_bg: null, read_at: null,
+      stamp_emoji: null, stamp_label: null, stamp_value: null, stamp_color: null, stamp_image: null,
+    },
   },
 };
 const DAY = 86_400_000;
@@ -292,6 +309,7 @@ export function createMockClient() {
       for (const f of def.fields) if (f in p) row[f] = p[f];
       for (const f of def.required) if (row[f] == null || (typeof row[f] === "string" && !row[f].trim())) return null;
       if (table === "list_items" && !rows("lists").some((l) => l.id === row.list_id)) return null;
+      if (table === "question_marks" && rows("question_marks").some((m) => m.question_key === row.question_key)) return null; // unique
       if (table === "postcards") {
         if (row.to_id === me() || !DEMO_USERS.some((u) => u.id === row.to_id)) return null;
         if (!row.front_image && !row.front_text?.trim()) return null;
@@ -329,6 +347,7 @@ export function createMockClient() {
   function mayChange(table, row) {
     if (table === "items") return row.author_id === me() && row.day === today();
     if (table === "postcards") return false; // once posted, it's out of your hands
+    if (table === "games") return row.next_id === me() && !row.winner; // only on your turn
     return true;
   }
 

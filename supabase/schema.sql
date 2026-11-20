@@ -75,6 +75,22 @@ create table if not exists public.items (
 );
 create index if not exists items_day_idx on public.items (day desc);
 
+-- GIFs and stickers from GIPHY (added later, so as a change that's safe to
+-- re-run on an existing database). Their GIPHY link is kept in body.
+-- Drawings need nothing here: they're photos stored as transparent PNGs.
+alter table public.items drop constraint if exists items_kind_check;
+alter table public.items add constraint items_kind_check
+  check (kind in ('text', 'photo', 'gif', 'sticker'));
+alter table public.items drop constraint if exists item_content;
+alter table public.items add constraint item_content check (
+  (kind = 'text'  and body is not null and char_length(btrim(body)) > 0)
+  or
+  (kind = 'photo' and image_path is not null and w is not null and aspect is not null)
+  or
+  (kind in ('gif', 'sticker') and body ~ '^https://(media[0-9]*|i)\.giphy\.com/'
+    and w is not null and aspect is not null)
+);
+
 alter table public.items enable row level security;
 
 drop policy if exists "members read items" on public.items;
@@ -219,6 +235,18 @@ create table if not exists public.trip_expenses (
 );
 create index if not exists trip_expenses_trip_idx on public.trip_expenses (trip_id);
 
+-- Card colour: the hue of its gradient (null = picked from the id)
+alter table public.trips add column if not exists hue smallint check (hue between 0 and 359);
+
+-- Dates are optional (a trip idea), but it's both or neither
+alter table public.trips alter column start_date drop not null;
+alter table public.trips alter column end_date drop not null;
+alter table public.trips drop constraint if exists trip_dates;
+alter table public.trips add constraint trip_dates check (
+  (start_date is null and end_date is null)
+  or (end_date >= start_date and end_date - start_date <= 90)
+);
+
 -- A trip's packing list is a normal list tied to the trip (hidden from the Lists tab)
 alter table public.lists add column if not exists trip_id bigint references public.trips(id) on delete cascade;
 
@@ -260,6 +288,12 @@ create table if not exists public.postcards (
   constraint postcard_to_someone_else check (to_id <> from_id),
   constraint postcard_has_front check (front_image is not null or char_length(btrim(coalesce(front_text, ''))) > 0)
 );
+-- A home-made stamp (stamp = 'custom'): any emoji, text and value, or a picture
+alter table public.postcards add column if not exists stamp_emoji text check (char_length(stamp_emoji) <= 16);
+alter table public.postcards add column if not exists stamp_label text check (char_length(stamp_label) <= 16);
+alter table public.postcards add column if not exists stamp_value text check (char_length(stamp_value) <= 6);
+alter table public.postcards add column if not exists stamp_color text check (stamp_color ~ '^#[0-9a-fA-F]{6}$');
+alter table public.postcards add column if not exists stamp_image text;
 create index if not exists postcards_to_idx on public.postcards (to_id, delivers_at);
 create index if not exists postcards_from_idx on public.postcards (from_id);
 
@@ -301,6 +335,7 @@ create policy "post postcards"
     and exists (select 1 from public.members m where m.user_id = to_id)
     and (front_image is null or front_image like auth.uid()::text || '/%')
     and (back_image is null or back_image like auth.uid()::text || '/%')
+    and (stamp_image is null or stamp_image like auth.uid()::text || '/%')
   );
 -- no update/delete policies: once it's in the post, it's in the post
 
@@ -321,7 +356,123 @@ as $$
    where id = card_id and to_id = auth.uid() and delivers_at <= now() and read_at is null;
 $$;
 
+-- ---------------------------------------------------------------------
+-- Questions: conversation cards. The built-in deck lives in the app
+-- (questions-data.js, ids "b1", "b2", ...). The database holds the questions
+-- you add yourselves (ids "c<id>"), and which questions you've answered or
+-- saved for later, shared between you both.
+-- ---------------------------------------------------------------------
+create table if not exists public.questions (
+  id         bigint generated always as identity primary key,
+  depth      text not null check (depth in ('surface', 'current', 'undertow', 'deepend', 'trench', 'riptide')),
+  body       text not null check (char_length(btrim(body)) between 1 and 300),
+  added_by   uuid default auth.uid() references public.members(user_id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.question_marks (
+  id           bigint generated always as identity primary key,
+  question_key text not null unique check (question_key ~ '^[bc][0-9]+$'),
+  status       text not null check (status in ('answered', 'saved')),
+  marked_by    uuid default auth.uid() references public.members(user_id) on delete set null,
+  marked_at    timestamptz not null default now(),
+  created_at   timestamptz not null default now()
+);
+
+alter table public.questions enable row level security;
+alter table public.question_marks enable row level security;
+
+drop policy if exists "members manage questions" on public.questions;
+create policy "members manage questions" on public.questions for all to authenticated
+  using (public.is_member()) with check (public.is_member());
+
+drop policy if exists "members manage question marks" on public.question_marks;
+create policy "members manage question marks" on public.question_marks for all to authenticated
+  using (public.is_member()) with check (public.is_member());
+
+-- ---------------------------------------------------------------------
+-- Games: Tic-tac-toe and Connect Four between the two of you. One row per
+-- game; cells is the board row by row ('-' empty, 'x', 'o'). Only the person
+-- whose turn it is can play, one mark at a time. A new game is a new row, so
+-- finished games stay as the score.
+-- ---------------------------------------------------------------------
+create table if not exists public.games (
+  id         bigint generated always as identity primary key,
+  kind       text not null check (kind in ('tictactoe', 'connect4')),
+  cells      text not null check (cells ~ '^[-xo]+$'),
+  x_id       uuid not null references public.members(user_id) on delete cascade,
+  o_id       uuid not null references public.members(user_id) on delete cascade,
+  next_id    uuid not null references public.members(user_id) on delete cascade,
+  moves      smallint not null default 0 check (moves >= 0),
+  winner     text check (winner in ('x', 'o', 'draw')),
+  created_by uuid default auth.uid() references public.members(user_id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint game_size check (char_length(cells) = case kind when 'tictactoe' then 9 else 42 end),
+  constraint game_players check (x_id <> o_id and next_id in (x_id, o_id))
+);
+
+alter table public.games enable row level security;
+
+drop policy if exists "members read games" on public.games;
+create policy "members read games" on public.games for select to authenticated
+  using (public.is_member());
+
+drop policy if exists "members start games" on public.games;
+create policy "members start games" on public.games for insert to authenticated
+  with check (public.is_member() and moves = 0 and winner is null and cells !~ '[xo]');
+
+drop policy if exists "play on your turn" on public.games;
+create policy "play on your turn" on public.games for update to authenticated
+  using (public.is_member() and next_id = auth.uid() and winner is null)
+  with check (public.is_member());
+
+-- A move is exactly one new mark of your own, on an empty cell
+create or replace function public.check_game_move()
+returns trigger language plpgsql as $$
+declare
+  mark char := case when auth.uid() = old.x_id then 'x' else 'o' end;
+  changed int := 0;
+begin
+  if new.kind <> old.kind or new.x_id <> old.x_id or new.o_id <> old.o_id or new.created_by is distinct from old.created_by then
+    raise exception 'can''t change who is playing';
+  end if;
+  if new.moves <> old.moves + 1 or new.next_id = auth.uid() then
+    raise exception 'one move at a time';
+  end if;
+  for i in 1..char_length(old.cells) loop
+    if substr(new.cells, i, 1) <> substr(old.cells, i, 1) then
+      if substr(old.cells, i, 1) <> '-' or substr(new.cells, i, 1) <> mark then
+        raise exception 'not a valid move';
+      end if;
+      changed := changed + 1;
+    end if;
+  end loop;
+  if changed <> 1 then raise exception 'one move at a time'; end if;
+  new.updated_at := now();
+  return new;
+end $$;
+
+drop trigger if exists games_check_move on public.games;
+create trigger games_check_move before update on public.games
+  for each row execute function public.check_game_move();
+
 -- Live updates
+do $$
+begin
+  alter publication supabase_realtime add table public.games;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table public.questions;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table public.question_marks;
+exception when duplicate_object then null;
+end $$;
 do $$
 begin
   alter publication supabase_realtime add table public.postcards;

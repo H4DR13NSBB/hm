@@ -3,6 +3,8 @@ import { createMockClient, DEMO_USERS } from "./mock-supabase.js";
 import { createLists } from "./lists.js";
 import { createTrips } from "./trips.js";
 import { createMail } from "./mail.js";
+import { createQuestions } from "./questions.js";
+import { createGames } from "./games.js";
 
 const { SUPABASE_URL, SUPABASE_ANON_KEY } = config;
 // Optional, so an older config.js without it still loads
@@ -18,13 +20,16 @@ const isLocal = ["localhost", "127.0.0.1", ""].includes(location.hostname) || lo
 // ---------------------------------------------------------------------------
 const W = 1000;
 const EDGE = 12;                 // keep new items this far from the sides
-const TEXT_SIZE = 46;            // default note size (~18px on an iPhone)
+const TEXT_SIZE = 34;            // default note size (~13px on an iPhone)
 const TEXT_MIN = 20, TEXT_MAX = 160;
+const TEXT_W_MIN = 80;           // narrowest a note can be dragged
 const PHOTO_W_LANDSCAPE = 560, PHOTO_W_PORTRAIT = 420, PHOTO_MIN = 160;
 const TODAY_ROOM = 700;          // empty space kept below the lowest item on today's board
 const DAYS_PER_PAGE = 7;         // how many past days to load at a time
 const PHOTO_MAX_SIDE = 1600;     // px, longest side after resizing
 const PHOTO_QUALITY = 0.82;      // JPEG quality
+const DRAW_W = 800;              // board units the full drawing pad width maps to
+const DRAW_MAX_SIDE = 1200;      // px, longest side of a saved drawing
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
@@ -129,17 +134,17 @@ async function r2(method, route, body, headers = {}) {
 }
 
 const photos = {
-  async upload(userId, blob) {
+  async upload(userId, blob, ext = "jpg", type = "image/jpeg") {
     // randomUUID needs https/localhost; fall back for phones testing over LAN http
     const id = crypto.randomUUID?.() ??
       [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
-    const path = `${userId}/${id}.jpg`;
+    const path = `${userId}/${id}.${ext}`;
     if (useR2) {
-      await r2("PUT", `/o/${path}`, blob, { "Content-Type": "image/jpeg" });
+      await r2("PUT", `/o/${path}`, blob, { "Content-Type": type });
       return path;
     }
     const { error } = await sb.storage.from(BUCKET).upload(path, blob, {
-      contentType: "image/jpeg",
+      contentType: type,
       cacheControl: "31536000",
     });
     if (error) throw error;
@@ -326,20 +331,24 @@ async function handleSession(session) {
   lists.start();
   trips.start();
   mail.start();
+  questions.start();
+  games.start();
 }
 
 function teardown() {
   lists.stop();
   trips.stop();
   mail.stop();
+  questions.stop();
+  games.stop();
   if (channel) sb.removeChannel(channel);
   channel = null;
   me = null;
   clearTimeout(midnightTimer);
   clearInterval(tickTimer);
   // park the floating bits before clearing the board
-  $("app-view").append($("toolbar"), $("add-menu"));
-  $("toolbar").hidden = $("add-menu").hidden = true;
+  $("app-view").append($("toolbar"), $("add-menu"), $("width-handle"));
+  $("toolbar").hidden = $("add-menu").hidden = $("width-handle").hidden = true;
   items.clear();
   itemEls.clear();
   sections.clear();
@@ -558,15 +567,17 @@ function renderItem(it) {
   let el = itemEls.get(it.id);
   if (!el) {
     el = document.createElement("div");
-    el.className = `item ${it.kind}`;
+    // GIFs and stickers look and behave like photos
+    el.className = it.kind === "text" || it.kind === "photo" ? `item ${it.kind}` : `item photo ${it.kind}`;
     el.dataset.id = it.id;
-    if (it.kind === "photo") {
+    if (it.kind !== "text") {
       const img = document.createElement("img");
-      img.alt = "Photo";
+      img.alt = it.kind === "photo" ? "Photo" : it.kind === "gif" ? "GIF" : "Sticker";
       img.decoding = "async";
       img.addEventListener("load", () => scheduleFit(it.day));
       el.append(img);
     }
+    el.classList.toggle("bare", isBare(it));
     itemEls.set(it.id, el);
   }
   if (el.parentElement !== s.canvas) s.canvas.append(el);
@@ -578,12 +589,19 @@ function renderItem(it) {
 
   if (it.kind === "text") {
     el.style.setProperty("--fs", it.size ?? TEXT_SIZE);
-    if (el.textContent !== it.body) el.textContent = it.body;
+    if (it.w) el.style.setProperty("--w", it.w); else el.style.removeProperty("--w");
+    el.classList.toggle("sized", !!it.w);
+    if (el.dataset.body !== it.body) {
+      el.dataset.body = it.body;
+      el.replaceChildren(...linkify(it.body));
+    }
   } else {
     el.style.setProperty("--w", it.w);
     el.style.setProperty("--ar", it.aspect);
     const img = el.querySelector("img");
-    if (img.dataset.path !== it.image_path) {
+    if (it.kind !== "photo") {
+      if (img.getAttribute("src") !== it.body) img.src = it.body;
+    } else if (img.dataset.path !== it.image_path) {
       img.dataset.path = it.image_path;
       photos.urls([it.image_path]).then((u) => {
         const src = u.get(it.image_path);
@@ -592,6 +610,31 @@ function renderItem(it) {
     }
   }
 }
+
+// Text with web addresses turned into links (www.… gets https:// added)
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"]+/gi;
+function linkify(text) {
+  const out = [];
+  let last = 0;
+  for (const m of text.matchAll(URL_RE)) {
+    const url = m[0].replace(/[.,;:!?)\]}'"]+$/, ""); // trailing punctuation isn't part of the link
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const a = document.createElement("a");
+    a.href = /^www\./i.test(url) ? "https://" + url : url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = url;
+    out.push(a);
+    last = m.index + url.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+// Drawings are stored like photos, but as transparent PNGs
+const isDrawing = (it) => it.kind === "photo" && /\.png$/.test(it.image_path ?? "");
+// Drawings and stickers have no frame and don't open full screen
+const isBare = (it) => isDrawing(it) || it.kind === "sticker";
 
 function removeItem(id) {
   const it = items.get(id);
@@ -660,6 +703,10 @@ $("add-menu").addEventListener("click", (e) => {
   if (kind === "text") {
     const pos = addPos;
     openEditor("", (body) => createText(pos, body));
+  } else if (kind === "draw") {
+    openDraw(addPos);
+  } else if (kind === "gif") {
+    openGifs(addPos);
   } else {
     pendingPhotoPos = addPos;
     $("file-input").click();
@@ -740,6 +787,255 @@ $("file-input").addEventListener("change", async (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Drawing pad. Points are stored as fractions of the pad width and brush sizes
+// relative to a 400px-wide pad, so a drawing survives the pad being resized.
+// ---------------------------------------------------------------------------
+const pad = $("draw-pad");
+const padCtx = pad.getContext("2d");
+let strokes = [];            // [{ color, size, pts: [[x, y], ...] }]
+let stroke = null;           // the one being drawn
+let drawPos = null;
+let drawColor = null, drawSize = 14;
+
+function openDraw(pos) {
+  drawPos = pos;
+  strokes = [];
+  // The first two are the two of you (--c1, --c2); your own is picked to start with
+  const colors = ["#ff7e27", "#fd5ff2", "#ff0000", "#ffff00", "#00b0f0", "#66ff33", "#000000", "#ffffff"];
+  drawColor = colorOf.get(me.id) === "var(--c2)" ? colors[1] : colors[0];
+  $("draw-colors").replaceChildren(...colors.map((c) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.color = c;
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-label", c);
+    b.style.setProperty("--sw", c);
+    return b;
+  }));
+  markDrawTools();
+  $("draw").showModal();
+  sizePad();
+}
+
+function markDrawTools() {
+  for (const b of $("draw-colors").children) b.setAttribute("aria-checked", String(b.dataset.color === drawColor));
+  for (const b of $("draw").querySelectorAll("[data-size]")) {
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", String(Number(b.dataset.size) === drawSize));
+  }
+}
+
+function sizePad() {
+  const dpr = Math.min(devicePixelRatio || 1, 3);
+  pad.width = Math.round(pad.clientWidth * dpr);
+  pad.height = Math.round(pad.clientHeight * dpr);
+  paint(padCtx, pad.width, 0, 0);
+}
+window.addEventListener("resize", () => { if ($("draw").open) sizePad(); });
+
+/** Draws strokes. `scale` = pixels per pad width; (ox, oy) = top-left, in pad widths. */
+function paint(ctx, scale, ox, oy, list = strokes) {
+  if (ctx === padCtx && list === strokes) ctx.clearRect(0, 0, pad.width, pad.height);
+  ctx.lineCap = ctx.lineJoin = "round";
+  for (const st of list) {
+    const X = (p) => (p[0] - ox) * scale, Y = (p) => (p[1] - oy) * scale;
+    ctx.strokeStyle = ctx.fillStyle = st.color;
+    ctx.lineWidth = st.size / 400 * scale;
+    ctx.beginPath();
+    if (st.pts.length === 1) {
+      ctx.arc(X(st.pts[0]), Y(st.pts[0]), ctx.lineWidth / 2, 0, Math.PI * 2);
+      ctx.fill();
+      continue;
+    }
+    ctx.moveTo(X(st.pts[0]), Y(st.pts[0]));
+    // smooth: curve through the midpoints between samples
+    for (let i = 1; i < st.pts.length - 1; i++) {
+      const a = st.pts[i], b = st.pts[i + 1];
+      ctx.quadraticCurveTo(X(a), Y(a), (X(a) + X(b)) / 2, (Y(a) + Y(b)) / 2);
+    }
+    ctx.lineTo(X(st.pts.at(-1)), Y(st.pts.at(-1)));
+    ctx.stroke();
+  }
+}
+
+function padPoint(e) {
+  const r = pad.getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.width];
+}
+pad.addEventListener("pointerdown", (e) => {
+  if (e.button > 0 || stroke) return; // one finger at a time
+  pad.setPointerCapture(e.pointerId);
+  stroke = { color: drawColor, size: drawSize, pts: [padPoint(e)], pid: e.pointerId };
+  strokes.push(stroke);
+  paint(padCtx, pad.width, 0, 0, [stroke]);
+});
+pad.addEventListener("pointermove", (e) => {
+  if (!stroke || e.pointerId !== stroke.pid) return;
+  for (const ev of e.getCoalescedEvents?.() ?? [e]) stroke.pts.push(padPoint(ev));
+  paint(padCtx, pad.width, 0, 0);
+});
+const endStroke = (e) => { if (stroke?.pid === e.pointerId) stroke = null; };
+pad.addEventListener("pointerup", endStroke);
+pad.addEventListener("pointercancel", endStroke);
+
+$("draw").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.color) drawColor = b.dataset.color;
+  else if (b.dataset.size) drawSize = Number(b.dataset.size);
+  else if (b.id === "draw-undo") strokes.pop();
+  else if (b.id === "draw-clear") strokes = [];
+  else return;
+  markDrawTools();
+  paint(padCtx, pad.width, 0, 0);
+});
+
+$("draw-save").addEventListener("click", async () => {
+  const pos = drawPos;
+  if (!strokes.length || !pos) return $("draw").close();
+
+  // Crop to the ink (plus brush radius), within the aspect ratios the database allows
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const st of strokes) {
+    const r = st.size / 800 + 0.01;
+    for (const [x, y] of st.pts) {
+      x0 = Math.min(x0, x - r); y0 = Math.min(y0, y - r);
+      x1 = Math.max(x1, x + r); y1 = Math.max(y1, y + r);
+    }
+  }
+  let bw = x1 - x0, bh = y1 - y0;
+  if (bw / bh > 9) { y0 -= (bw / 9 - bh) / 2; bh = bw / 9; }
+  if (bw / bh < 1 / 9) { x0 -= (bh / 9 - bw) / 2; bw = bh / 9; }
+
+  const scale = Math.min(DRAW_MAX_SIDE / Math.max(bw, bh), pad.width);
+  const out = document.createElement("canvas");
+  out.width = Math.max(1, Math.round(bw * scale));
+  out.height = Math.max(1, Math.round(bh * scale));
+  paint(out.getContext("2d"), scale, x0, y0);
+  const blob = await new Promise((r) => out.toBlob(r, "image/png"));
+  $("draw").close();
+  if (!blob) return toast("Couldn't save the drawing.");
+
+  const aspect = round1(out.width / out.height * 100) / 100;
+  const w = round1(clamp(bw * DRAW_W, 50, W - 2 * EDGE));
+  const x = clamp(pos.x - w / 2, EDGE, W - w - EDGE);
+  const y = Math.max(EDGE, pos.y - w / aspect / 2);
+  let path = null;
+  try {
+    path = await photos.upload(me.id, blob, "png", "image/png");
+    const { data, error } = await sb.from("items")
+      .insert({ kind: "photo", author_id: me.id, x: round1(x), y: round1(y), w, aspect, image_path: path })
+      .select().single();
+    if (error) throw error;
+    putItem(data);
+  } catch (err) {
+    if (path) photos.remove(path).catch(() => {});
+    toast("Couldn't add the drawing: " + friendly(err));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GIFs & stickers, searched on GIPHY through the photos Worker (it holds the
+// API key). The board item just keeps GIPHY's link.
+// ---------------------------------------------------------------------------
+const GIF_W = { landscape: 480, portrait: 360, sticker: 320 };
+let gifType = "gifs";        // or "stickers"
+let gifPos = null;
+let gifNext = 0;             // offset of the next page, null = no more
+let gifSeq = 0, gifLoading = false, gifTimer = 0;
+
+function openGifs(pos) {
+  gifPos = pos;
+  $("gif-q").value = "";
+  markGifType();
+  $("gif-picker").showModal();
+  loadGifs(true);
+}
+
+function markGifType() {
+  for (const b of $("gif-types").children) b.setAttribute("aria-selected", String(b.dataset.type === gifType));
+  $("gif-q").placeholder = gifType === "stickers" ? "Search stickers" : "Search GIFs";
+  $("gif-grid").classList.toggle("stickers", gifType === "stickers");
+}
+
+async function loadGifs(fresh) {
+  const grid = $("gif-grid");
+  if (fresh) {
+    gifNext = 0;
+    gifLoading = false;
+    grid.replaceChildren();
+    grid.scrollTop = 0;
+  }
+  if (gifNext == null || gifLoading) return;
+  const seq = ++gifSeq;
+  gifLoading = true;
+  $("gif-status").textContent = "Loading…";
+  try {
+    if (!PHOTOS_URL) throw new Error("GIF search needs the photos Worker (PHOTOS_URL in config.js).");
+    const q = new URLSearchParams({ type: gifType, q: $("gif-q").value.trim(), offset: gifNext });
+    const { results, next } = await r2("GET", `/gifs?${q}`);
+    if (seq !== gifSeq) return; // a newer search started meanwhile
+    gifNext = next;
+    grid.append(...results.map((r) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      Object.assign(b.dataset, { url: r.url, w: r.w, h: r.h });
+      const img = document.createElement("img");
+      img.src = r.preview;
+      img.alt = r.title;
+      img.loading = "lazy";
+      b.append(img);
+      return b;
+    }));
+    $("gif-status").textContent = grid.children.length ? "" : "Nothing found.";
+  } catch (err) {
+    if (seq === gifSeq) $("gif-status").textContent = err.message ?? String(err);
+  } finally {
+    if (seq === gifSeq) gifLoading = false;
+  }
+}
+
+$("gif-q").addEventListener("input", () => {
+  clearTimeout(gifTimer);
+  gifTimer = setTimeout(() => loadGifs(true), 350);
+});
+$("gif-q").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } // just hide the keyboard
+});
+$("gif-types").addEventListener("click", (e) => {
+  const type = e.target.closest("[data-type]")?.dataset.type;
+  if (!type || type === gifType) return;
+  gifType = type;
+  markGifType();
+  loadGifs(true);
+});
+$("gif-grid").addEventListener("scroll", (e) => {
+  const g = e.target;
+  if (g.scrollTop + g.clientHeight > g.scrollHeight - 300) loadGifs(false);
+});
+$("gif-grid").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-url]");
+  if (!b) return;
+  $("gif-picker").close();
+  addGif(b.dataset.url, Number(b.dataset.w) / Number(b.dataset.h));
+});
+
+async function addGif(url, ratio) {
+  const pos = gifPos;
+  if (!pos) return;
+  const kind = gifType === "stickers" ? "sticker" : "gif";
+  const aspect = clamp(round1(ratio * 100) / 100, 0.1, 10);
+  const w = kind === "sticker" ? GIF_W.sticker : aspect >= 1 ? GIF_W.landscape : GIF_W.portrait;
+  const x = clamp(pos.x - w / 2, EDGE, W - w - EDGE);
+  const y = Math.max(EDGE, pos.y - w / aspect / 2);
+  const { data, error } = await sb.from("items")
+    .insert({ kind, author_id: me.id, x: round1(x), y: round1(y), w, aspect, body: url })
+    .select().single();
+  if (error) return toast(`Couldn't add the ${kind === "gif" ? "GIF" : "sticker"}: ` + friendly(error));
+  putItem(data);
+}
+
+// ---------------------------------------------------------------------------
 // Selecting, moving, resizing, editing, deleting your own items (today only)
 // ---------------------------------------------------------------------------
 function select(id) {
@@ -753,7 +1049,7 @@ function select(id) {
 function deselect() {
   if (selectedId != null) itemEls.get(selectedId)?.classList.remove("selected");
   selectedId = null;
-  $("toolbar").hidden = true;
+  $("toolbar").hidden = $("width-handle").hidden = true;
 }
 function showToolbar() {
   const it = items.get(selectedId);
@@ -762,17 +1058,28 @@ function showToolbar() {
   if (!it || !el || !s) return deselect();
   const tb = $("toolbar");
   tb.querySelector('[data-act="edit"]').hidden = it.kind !== "text";
-  tb.querySelector('[data-act="view"]').hidden = it.kind !== "photo";
+  tb.querySelector('[data-act="view"]').hidden = it.kind === "text" || isBare(it);
   s.canvas.append(tb);
   tb.hidden = false;
   const above = el.offsetTop - tb.offsetHeight - 12;
   tb.style.top = (above < 0 ? el.offsetTop + el.offsetHeight + 12 : above) + "px";
   tb.style.left = clamp(el.offsetLeft, 6, s.canvas.clientWidth - tb.offsetWidth - 6) + "px";
+  placeWidthHandle(it, el, s.canvas);
+}
+// Notes get a handle on their right edge to drag their width.
+function placeWidthHandle(it, el, canvas) {
+  const h = $("width-handle");
+  h.hidden = it.kind !== "text";
+  if (h.hidden) return;
+  canvas.append(h);
+  h.style.left = el.offsetLeft + el.offsetWidth + "px";
+  h.style.top = el.offsetTop + el.offsetHeight / 2 + "px";
 }
 
 board.addEventListener("click", (e) => {
-  if (suppressClick) { suppressClick = false; return; }
-  if (e.target.closest("#toolbar, #add-menu")) return;
+  if (suppressClick) { suppressClick = false; e.preventDefault(); return; } // also stops a dragged link opening
+  if (e.target.closest("#toolbar, #add-menu, #width-handle")) return;
+  if (e.target.closest(".item a[href]")) return; // links open; tap the rest of the note to select it
 
   const itemEl = e.target.closest(".item[data-id]");
   if (itemEl) {
@@ -783,7 +1090,7 @@ board.addEventListener("click", (e) => {
       if (selectedId !== it.id) select(it.id);
     } else {
       deselect();
-      if (it.kind === "photo") openLightbox(itemEl.querySelector("img")?.src);
+      if (it.kind !== "text" && !isBare(it)) openLightbox(itemEl.querySelector("img")?.src);
     }
     return;
   }
@@ -819,7 +1126,7 @@ board.addEventListener("pointermove", (e) => {
   if (!drag.moved) {
     drag.moved = true;
     drag.el.classList.add("dragging");
-    $("toolbar").hidden = true;
+    $("toolbar").hidden = $("width-handle").hidden = true;
   }
   drag.x = clamp(drag.ox + dx / u, 0, W - drag.el.offsetWidth / u);
   drag.y = Math.max(0, drag.oy + dy / u);
@@ -849,6 +1156,38 @@ function endDrag(e, cancelled) {
 board.addEventListener("pointerup", (e) => endDrag(e, false));
 board.addEventListener("pointercancel", (e) => endDrag(e, true));
 
+let widthDrag = null;
+$("width-handle").addEventListener("pointerdown", (e) => {
+  const it = items.get(selectedId);
+  const el = itemEls.get(selectedId);
+  if (!it || !el || e.button > 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  widthDrag = { it, el, pid: e.pointerId, left: el.getBoundingClientRect().left, w: null };
+  e.currentTarget.setPointerCapture(e.pointerId);
+  $("toolbar").hidden = true;
+});
+$("width-handle").addEventListener("pointermove", (e) => {
+  const d = widthDrag;
+  if (!d || e.pointerId !== d.pid) return;
+  const u = unit();
+  d.w = clamp((e.clientX - d.left) / u, TEXT_W_MIN, W - d.it.x);
+  d.el.style.setProperty("--w", d.w);
+  d.el.classList.add("sized");
+  placeWidthHandle(d.it, d.el, d.el.parentElement);
+  scheduleFit(d.it.day);
+});
+function endWidthDrag(e) {
+  const d = widthDrag;
+  if (!d || e.pointerId !== d.pid) return;
+  widthDrag = null;
+  if (d.w == null) return showToolbar();
+  saveItem(d.it, { w: round1(d.w) });
+}
+$("width-handle").addEventListener("pointerup", endWidthDrag);
+$("width-handle").addEventListener("pointercancel", endWidthDrag);
+$("width-handle").addEventListener("click", (e) => e.stopPropagation());
+
 $("toolbar").addEventListener("click", async (e) => {
   e.stopPropagation();
   const act = e.target.closest("button")?.dataset.act;
@@ -864,11 +1203,12 @@ $("toolbar").addEventListener("click", async (e) => {
     if (it.kind === "text") {
       saveItem(it, { size: round1(clamp((it.size ?? TEXT_SIZE) * f, TEXT_MIN, TEXT_MAX)) }, 500);
     } else {
-      const w = round1(clamp(it.w * f, PHOTO_MIN, W - 2 * EDGE));
+      const w = round1(clamp(it.w * f, isBare(it) ? 50 : PHOTO_MIN, W - 2 * EDGE));
       saveItem(it, { w, x: round1(clamp(it.x, 0, W - w)) }, 500);
     }
   } else if (act === "delete") {
-    if (!confirm(it.kind === "photo" ? "Delete this photo?" : "Delete this note?")) return;
+    const what = isDrawing(it) ? "drawing" : { text: "note", photo: "photo", gif: "GIF", sticker: "sticker" }[it.kind];
+    if (!confirm(`Delete this ${what}?`)) return;
     deselect();
     const { data, error } = await sb.from("items").delete().eq("id", it.id).select();
     if (error || !data?.length) return toast(error ? friendly(error) : "That day is locked now, so it can't be changed.");
@@ -927,6 +1267,8 @@ function checkDay() {
   deselect();
   closeAddMenu();
   if ($("editor").open) { editorSave = null; $("editor").close(); }
+  if ($("draw").open) $("draw").close();
+  if ($("gif-picker").open) $("gif-picker").close();
   for (const s of sections.values()) updateSectionState(s);
   ensureSection(today);
   scheduleFit(prev);
@@ -944,6 +1286,8 @@ document.addEventListener("visibilitychange", () => {
   lists.load();
   trips.load();
   mail.load();
+  questions.load();
+  games.load();
 });
 window.addEventListener("online", () => {
   if (!me) return;
@@ -951,12 +1295,14 @@ window.addEventListener("online", () => {
   lists.load();
   trips.load();
   mail.load();
+  questions.load();
+  games.load();
 });
 
 // ---------------------------------------------------------------------------
-// Tabs: Board / Lists / Trips / Mail
+// Tabs: Board / Lists / Trips / Questions / Games / Mail
 // ---------------------------------------------------------------------------
-const TABS = ["board", "lists", "trips", "mail"];
+const TABS = ["board", "lists", "trips", "questions", "games", "mail"];
 
 function showTab(name) {
   if (!TABS.includes(name)) name = "board";
@@ -983,6 +1329,8 @@ async function resolveMapsLink(url) {
   return data.url;
 }
 const trips = createTrips({ sb, getMe: () => me, getMembers: () => memberList, colorOf, toast, resolveMapsLink });
+const questions = createQuestions({ sb, getMe: () => me, getMembers: () => memberList, colorOf, toast, openEditor });
+const games = createGames({ sb, getMe: () => me, getMembers: () => memberList, colorOf, toast });
 const mail = createMail({ sb, getMe: () => me, getMembers: () => memberList, toast, photos, compressImage });
 
 let savedTab = "board";

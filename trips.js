@@ -16,6 +16,10 @@ export const KINDS = {
 };
 const CURRENCIES = ["USD", "CHF"];
 const SEGMENTS = ["plan", "ideas", "map", "packing", "money"];
+// Card gradients to pick from, as hues: rose, coral, amber, lime, green, teal, blue, purple
+const HUES = [345, 15, 35, 75, 130, 175, 215, 270];
+// Older trips without a picked colour keep the one derived from their id
+const hueOf = (t) => t.hue ?? (t.id * 67) % 360;
 const LEAFLET_JS = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
 const LEAFLET_CSS = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
 
@@ -39,7 +43,9 @@ function fmtRange(a, b) {
   const sameYear = a.slice(0, 4) === b.slice(0, 4);
   return `${fmt(a, { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) })} – ${fmt(b, { day: "numeric", month: "short", year: "numeric" })}`;
 }
+const tripDates = (t) => (t.start_date ? fmtRange(t.start_date, t.end_date) : "");
 function tripDays(t) {
+  if (!t.start_date) return []; // trip idea, no dates yet
   const n = Math.min(daysBetween(t.start_date, t.end_date), 90);
   return Array.from({ length: n + 1 }, (_, i) => addDays(t.start_date, i));
 }
@@ -109,6 +115,22 @@ function geocode(query, near) {
       hit = await tryQ(query);
     }
     return hit;
+  };
+  const p = geoQueue.then(run, run);
+  geoQueue = p.catch(() => {}).then(() => new Promise((r) => setTimeout(r, 1100)));
+  return p.catch(() => null);
+}
+/** Street address at a point ("84 Rua de Belém, Lisbon"), or null. */
+function reverseGeocode(lat, lng) {
+  const run = async () => {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&lat=${lat}&lon=${lng}`,
+      { headers: { "Accept-Language": "en" } });
+    if (!r.ok) return null;
+    const { address: a } = await r.json();
+    if (!a) return null;
+    const street = [a.house_number, a.road].filter(Boolean).join(" ");
+    const town = a.city || a.town || a.village || a.suburb;
+    return [street, town].filter(Boolean).join(", ") || null;
   };
   const p = geoQueue.then(run, run);
   geoQueue = p.catch(() => {}).then(() => new Promise((r) => setTimeout(r, 1100)));
@@ -215,9 +237,11 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     currentId = null;
     const today = localToday();
     const all = [...trips.values()];
-    const upcoming = all.filter((t) => t.end_date >= today).sort((a, b) => a.start_date.localeCompare(b.start_date));
-    const past = all.filter((t) => t.end_date < today).sort((a, b) => b.start_date.localeCompare(a.start_date));
+    const upcoming = all.filter((t) => t.end_date && t.end_date >= today).sort((a, b) => a.start_date.localeCompare(b.start_date));
+    const past = all.filter((t) => t.end_date && t.end_date < today).sort((a, b) => b.start_date.localeCompare(a.start_date));
+    const ideas = all.filter((t) => !t.start_date).sort((a, b) => a.created_at.localeCompare(b.created_at));
     const out = upcoming.map(card);
+    if (ideas.length) out.push(el("h3", "trips-subhead", "Trip ideas"), ...ideas.map(card));
     if (past.length) out.push(el("h3", "trips-subhead", "Past trips"), ...past.map(card));
     $("trip-cards").replaceChildren(...out);
     $("trips-empty").hidden = all.length > 0;
@@ -226,12 +250,12 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
   function card(t) {
     const b = el("button", "trip-card");
     b.type = "button";
-    b.style.setProperty("--hue", (t.id * 67) % 360);
+    b.style.setProperty("--hue", hueOf(t));
     const badge = countdown(t);
     const top = el("div", "trip-card-top");
     top.append(el("span", "trip-card-name", t.name));
     if (badge) top.append(el("span", "trip-badge", badge));
-    b.append(top, el("div", "trip-card-sub", [t.destination, fmtRange(t.start_date, t.end_date)].filter(Boolean).join(" · ")));
+    b.append(top, el("div", "trip-card-sub", [t.destination, tripDates(t)].filter(Boolean).join(" · ")));
     b.addEventListener("click", () => openTrip(t.id));
     return b;
   }
@@ -245,7 +269,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
 
   function renderDetail(t) {
     $("trip-name").textContent = t.name;
-    $("trip-sub").textContent = [t.destination, fmtRange(t.start_date, t.end_date), countdown(t)].filter(Boolean).join(" · ");
+    $("trip-sub").textContent = [t.destination, tripDates(t), countdown(t)].filter(Boolean).join(" · ");
     for (const b of $("trip-segments").querySelectorAll("[data-seg]")) {
       b.setAttribute("aria-selected", String(b.dataset.seg === segment));
     }
@@ -276,6 +300,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
       list.forEach((e) => sec.append(entryCard(e)));
       return sec;
     });
+    if (!days.length) out.push(el("p", "muted center pad", "No dates yet. Edit the trip to set them, or collect ideas in the meantime."));
     const outside = mine.filter((e) => e.day && !days.includes(e.day)).sort((a, b) => a.day.localeCompare(b.day) || byTime(a, b));
     if (outside.length) {
       const sec = el("section", "plan-day");
@@ -553,8 +578,25 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
 
   // ---------- trip dialog ----------
   let editingTrip = null;
+  let pickedHue = HUES[0];
+  $("trip-hues").replaceChildren(...HUES.map((h) => {
+    const b = el("button");
+    b.type = "button";
+    b.dataset.hue = h;
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-label", `Hue ${h}`);
+    b.style.setProperty("--hue", h);
+    b.addEventListener("click", () => markHue(h));
+    return b;
+  }));
+  function markHue(h) {
+    pickedHue = h;
+    for (const b of $("trip-hues").children) b.setAttribute("aria-checked", String(Number(b.dataset.hue) === h));
+  }
   function openTripDialog(t) {
     editingTrip = t;
+    // A new trip gets the next colour along, so two in a row don't match
+    markHue(t ? hueOf(t) : HUES[trips.size % HUES.length]);
     const f = $("trip-form").elements;
     f.tname.value = t?.name ?? "";
     f.tdest.value = t?.destination ?? "";
@@ -574,12 +616,14 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const row = {
       name: f.tname.value.trim(),
       destination: f.tdest.value.trim() || null,
-      start_date: f.tstart.value,
-      end_date: f.tend.value,
+      // One date alone means a one-day trip; none means a trip idea
+      start_date: f.tstart.value || f.tend.value || null,
+      end_date: f.tend.value || f.tstart.value || null,
+      hue: pickedHue,
     };
-    if (!row.name || !row.start_date || !row.end_date) return;
+    if (!row.name) return;
     if (row.end_date < row.start_date) return toast("The trip ends before it starts.");
-    if (daysBetween(row.start_date, row.end_date) > 90) return toast("Trips can be at most 90 days long.");
+    if (row.start_date && daysBetween(row.start_date, row.end_date) > 90) return toast("Trips can be at most 90 days long.");
     $("trip-dialog").close();
     if (editingTrip) {
       const { data, error } = await sb.from("trips").update(row).eq("id", editingTrip.id).select().single();
@@ -728,6 +772,8 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
         const hit = await geocode(draft.place || draft.title, t.destination);
         if (hit) { draft.lat = hit.lat; draft.lng = hit.lng; }
       }
+      // Google's links carry only the name and pin: fill in the street address
+      if (draft.lat != null && !draft.place) draft.place = await reverseGeocode(draft.lat, draft.lng);
       $("idea-paste-input").value = "";
       openEntry(draft);
       if (!title) updatePinStatus("Couldn't read the place name from that link. Type it in and tap Find.");

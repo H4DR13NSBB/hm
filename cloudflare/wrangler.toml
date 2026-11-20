@@ -14,3 +14,4 @@ ALLOWED_ORIGINS = "https://h4dr13nsbb.github.io,http://127.0.0.1:5500"
 # Secrets (not in this file), set with:
 #   npx wrangler secret put MEMBERS       -> "<user id 1>,<user id 2>"
 #   npx wrangler secret put SIGNING_KEY   -> any long random string
+#   npx wrangler secret put GIPHY_KEY     -> GIPHY API key (GIF & sticker search)

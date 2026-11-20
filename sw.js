@@ -3,8 +3,8 @@
 // (Supabase requests are cross-origin and are never cached.)
 // This is also where push notifications would be handled later.
 
-const CACHE = "duo-v3";
-const SHELL = ["./", "index.html", "style.css", "app.js", "config.js", "mock-supabase.js", "lists.js", "trips.js", "mail.js", "manifest.webmanifest", "icons/icon-180.png"];
+const CACHE = "duo-v6";
+const SHELL = ["./", "index.html", "style.css", "app.js", "config.js", "mock-supabase.js", "lists.js", "trips.js", "mail.js", "questions.js", "questions-data.js", "games.js", "manifest.webmanifest", "icons/icon-180.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

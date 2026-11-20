@@ -15,6 +15,9 @@ duo/
 ├── lists.js                Lists tab
 ├── trips.js                Trips tab
 ├── mail.js                 Mail tab (postcards)
+├── questions.js            Questions tab
+├── questions-data.js       the built-in question deck
+├── games.js                Games tab
 ├── mock-supabase.js        in-browser demo backend (used until config.js has real keys)
 ├── config.js               your Supabase URL + anon key
 ├── manifest.webmanifest    Home Screen app settings
@@ -29,7 +32,8 @@ duo/
 
 ## How the board works
 
-- **Today** is at the top. Tap empty space (or the **+** button) to add a **note** or a **photo** at that spot.
+- **Today** is at the top. Tap empty space (or the **+** button) to add a **note**, a **photo**, a **drawing**,
+  or a **GIF / sticker** at that spot.
 - Tap one of **your own** items to select it. Then drag to move it, use **− / +** to resize, ✏️ to edit, or 🗑 to delete.
 - Today's section always keeps empty room below the lowest item, so you just keep going down for more space.
 - Photos are resized automatically on upload (max 1600 px, ~300 KB) and placed at a sensible size.
@@ -51,8 +55,20 @@ duo/
   - **Packing:** a checklist for the trip.
   - **Money:** expenses in USD or CHF, split 50/50. Each currency has its own "X owes Y" balance and a **Settle up** button.
 
+- **Questions** (`questions.js`, deck in `questions-data.js`): conversation cards from Wavelength, 216 questions in six
+  depths (Surface → Trench, plus Riptide). Pick depths, then swipe right once you've both answered, left to skip,
+  or 🔖 to save for later. Answered and saved marks are shared, so new rounds
+  leave out what you've already answered together. **Ours** holds questions you write yourselves.
+  Only ever add built-in questions at the end of `questions-data.js`: marks are stored by position.
+
+- **Games** (`games.js`): Tic-tac-toe and Connect Four, played live between your two phones. Whoever makes the
+  first move is X; after that, the one who was O last time starts. You can only play on your turn (the database
+  checks it, one mark at a time), and a badge on the tab shows when it's your move. Finished games are kept,
+  so each game has a running score. **Start over** abandons a game without counting it.
+
 - **Mail** (`mail.js`): send each other postcards. Each side can have a photo, text or both, on a background
-  colour you pick; the back is a classic postcard with your message on the left and a stamp you choose on the right.
+  colour you pick; the back is a classic postcard with your message on the left and a stamp you choose on the right
+  (one of the ready-made ones, or your own: any emoji, text, value and colour, or a picture).
   A posted card takes **2 to 15 days** to arrive: the database draws the number from a normal distribution
   (mean 8.5 days, sd 2.2, redrawn if it falls outside 2–15), so it's usually about a week. The recipient can't
   see the card until it arrives, only that "a postcard is somewhere in the post". Once posted it can't be changed
@@ -67,6 +83,13 @@ Deploy it once: Supabase Dashboard → **Edge Functions** → **Deploy a new fun
 and paste `index.ts`. Without it (and in demo mode) short links fall back to looking the place up by name.
 
 Place lookups ("Find" and automatic pins) use OpenStreetMap's free Nominatim service: the place text you type is sent there.
+
+### GIFs & stickers
+
+Search goes through the `duo-photos` Worker, which holds the GIPHY API key so it never appears in this public repo.
+Get a free key at developers.giphy.com (create an **API** app), then in `cloudflare/`:
+`npx wrangler secret put GIPHY_KEY` and `npx wrangler@4 deploy`. Also run the GIF part of `supabase/schema.sql`
+(the `items_kind_check` / `item_content` lines) once in the SQL Editor. The board stores only GIPHY's link, not the file.
 
 ## 0. Try it right now (demo mode, no setup)
 

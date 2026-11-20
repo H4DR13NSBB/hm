@@ -9,12 +9,14 @@
 //   POST   /sign  {paths:[...]}      -> {urls:{path:url}, expires}    Bearer token
 //   GET    /p/<path>?exp=..&sig=..   the photo itself (signed link, no token)
 //   POST   /resolve {url}            -> {url}  expand a Google Maps short link  Bearer token
+//   GET    /gifs?type=gifs|stickers&q=..&offset=..  -> {results, next}  GIPHY search  Bearer token
 //
 // Settings (see wrangler.toml):
 //   SUPABASE_URL      var     https://<ref>.supabase.co
 //   ALLOWED_ORIGINS   var     comma-separated site origins allowed to call the API
 //   MEMBERS           secret  comma-separated Supabase user ids of the two of you
 //   SIGNING_KEY       secret  any long random string (signs the view links)
+//   GIPHY_KEY         secret  GIPHY API key, for GIF & sticker search
 //   JWT_SECRET        secret  optional: only for projects still on the legacy HS256 JWT secret
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -51,6 +53,11 @@ export default {
       if (req.method === "POST" && url.pathname === "/resolve") {
         const { url: link } = await req.json();
         return json(await resolveMapsLink(String(link)), 200, cors);
+      }
+
+      if (req.method === "GET" && url.pathname === "/gifs") {
+        if (!env.GIPHY_KEY) return json({ error: "GIF search isn't set up yet (GIPHY_KEY)" }, 503, cors);
+        return json(await searchGifs(url.searchParams, env), 200, cors);
       }
 
       if (url.pathname.startsWith("/o/")) {
@@ -101,6 +108,35 @@ async function view(url, env) {
   });
 }
 
+// ---------- GIFs & stickers ----------
+// Searches GIPHY here so the API key never reaches the public site.
+// Empty query = trending. Only what the app needs is sent back.
+async function searchGifs(params, env) {
+  const type = params.get("type") === "stickers" ? "stickers" : "gifs";
+  const q = (params.get("q") || "").trim().slice(0, 50);
+  const api = new URL(`https://api.giphy.com/v1/${type}/${q ? "search" : "trending"}`);
+  api.search = new URLSearchParams({
+    api_key: env.GIPHY_KEY,
+    limit: "24",
+    offset: String(Math.min(Math.max(Number(params.get("offset")) || 0, 0), 4999)),
+    rating: "pg-13",
+    ...(q && { q }),
+  });
+  const res = await fetch(api);
+  if (!res.ok) throw new Error(`GIPHY error (${res.status})`);
+  const { data = [], pagination = {} } = await res.json();
+  const results = [];
+  for (const g of data) {
+    const big = g.images?.downsized?.url ? g.images.downsized : g.images?.original;
+    const small = g.images?.fixed_width?.url ? g.images.fixed_width : big;
+    const w = Number(big?.width), h = Number(big?.height);
+    if (!big?.url || !(w > 0) || !(h > 0)) continue;
+    results.push({ url: big.url, w, h, preview: small.webp || small.url, title: g.title || "" });
+  }
+  const end = (pagination.offset ?? 0) + (pagination.count ?? data.length);
+  return { results, next: data.length && end < (pagination.total_count ?? 0) ? end : null };
+}
+
 // ---------- Google Maps links ----------
 // Short links (maps.app.goo.gl/...) redirect to the full URL with the place's
 // name and coordinates; a browser can't follow that itself (CORS). Only Google
@@ -115,6 +151,9 @@ async function resolveMapsLink(link) {
     // EU cookie-consent interstitial: the real destination is in ?continue=
     const next = current.searchParams.get("continue");
     if (/^consent\./i.test(current.hostname) && next) { current = new URL(next); continue; }
+    // Reached a full Google Maps URL: the name and pin are in it. Fetching it
+    // again only bounces to the consent page (in the EU), so stop here.
+    if (!/goo\.gl$/i.test(current.hostname)) break;
     const res = await fetch(current, { redirect: "manual", headers: { "user-agent": UA, "accept-language": "en" } });
     const location = res.headers.get("location");
     await res.body?.cancel();
