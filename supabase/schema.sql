@@ -1,6 +1,9 @@
 -- =====================================================================
 -- Duo: a shared daily board for two people
--- Run this whole file once in Supabase: Dashboard > SQL Editor > New query
+-- Run this whole file in Supabase: Dashboard > SQL Editor > New query.
+-- It's safe to run again after any change: it only adds or updates, never
+-- deletes your data. Keep it that way (create ... if not exists,
+-- drop ... if exists before re-adding, and one definition per constraint).
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -75,17 +78,23 @@ create table if not exists public.items (
 );
 create index if not exists items_day_idx on public.items (day desc);
 
--- GIFs and stickers from GIPHY (added later, so as a change that's safe to
--- re-run on an existing database). Their GIPHY link is kept in body.
--- Drawings need nothing here: they're photos stored as transparent PNGs.
+-- Kinds added later, as changes that are safe to re-run on an existing database.
+-- This is the one place the rules for each kind live: to add a kind, edit
+-- these two constraints here (never add a second copy further down).
+--   gif, sticker   from GIPHY; the link is kept in body
+--   audio, video   voice notes and videos; the file is in image_path like a
+--                  photo, duration in seconds. Voice notes are a fixed-shape
+--                  pill, so they keep a width and aspect too.
+--   Drawings need nothing here: they're photos stored as transparent PNGs.
+alter table public.items add column if not exists duration real check (duration between 0 and 600);
 alter table public.items drop constraint if exists items_kind_check;
 alter table public.items add constraint items_kind_check
-  check (kind in ('text', 'photo', 'gif', 'sticker'));
+  check (kind in ('text', 'photo', 'gif', 'sticker', 'audio', 'video'));
 alter table public.items drop constraint if exists item_content;
 alter table public.items add constraint item_content check (
   (kind = 'text'  and body is not null and char_length(btrim(body)) > 0)
   or
-  (kind = 'photo' and image_path is not null and w is not null and aspect is not null)
+  (kind in ('photo', 'audio', 'video') and image_path is not null and w is not null and aspect is not null)
   or
   (kind in ('gif', 'sticker') and body ~ '^https://(media[0-9]*|i)\.giphy\.com/'
     and w is not null and aspect is not null)
@@ -457,7 +466,44 @@ drop trigger if exists games_check_move on public.games;
 create trigger games_check_move before update on public.games
   for each row execute function public.check_game_move();
 
+-- ---------------------------------------------------------------------
+-- Draw & Guess: one of you draws a word, the other guesses it. The drawing
+-- is kept as pen strokes (JSON), so it can be replayed and put on the board.
+-- ---------------------------------------------------------------------
+create table if not exists public.sketches (
+  id          bigint generated always as identity primary key,
+  word        text not null check (char_length(btrim(word)) between 1 and 40),
+  strokes     jsonb not null check (jsonb_typeof(strokes) = 'array' and pg_column_size(strokes) < 200000),
+  drawer_id   uuid not null default auth.uid() references public.members(user_id) on delete cascade,
+  guesser_id  uuid not null references public.members(user_id) on delete cascade,
+  guesses     text[] not null default '{}' check (cardinality(guesses) <= 100),
+  status      text not null default 'guessing' check (status in ('guessing', 'guessed', 'gave_up')),
+  pinned      boolean not null default false,   -- put on the board already
+  created_at  timestamptz not null default now(),
+  finished_at timestamptz,
+  constraint sketch_two_people check (drawer_id <> guesser_id)
+);
+
+alter table public.sketches enable row level security;
+
+drop policy if exists "members read sketches" on public.sketches;
+create policy "members read sketches" on public.sketches for select to authenticated
+  using (public.is_member());
+
+drop policy if exists "draw for the other one" on public.sketches;
+create policy "draw for the other one" on public.sketches for insert to authenticated
+  with check (public.is_member() and drawer_id = auth.uid() and status = 'guessing' and guesses = '{}');
+
+drop policy if exists "members play sketches" on public.sketches;
+create policy "members play sketches" on public.sketches for update to authenticated
+  using (public.is_member()) with check (public.is_member());
+
 -- Live updates
+do $$
+begin
+  alter publication supabase_realtime add table public.sketches;
+exception when duplicate_object then null;
+end $$;
 do $$
 begin
   alter publication supabase_realtime add table public.games;
@@ -534,3 +580,127 @@ drop policy if exists "members delete own photos" on storage.objects;
 create policy "members delete own photos"
   on storage.objects for delete to authenticated
   using (bucket_id = 'photos' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ---------------------------------------------------------------------
+-- Gifts: a box with something hidden inside (a note, plus a photo,
+-- drawing, GIF, sticker, voice note or video), opened by the other person.
+-- Boxes exist on special days only (see gift_occasion):
+--   1-24 December    advent: one box from each of you, every day
+--   a birthday       only the other person gives one
+--   the anniversary  one from each of you
+-- Boxes can be filled ahead of time. The recipient doesn't see a box until
+-- its day, and can't read what's inside until they've opened it (the
+-- contents live in their own table, readable only then). Opening is only
+-- possible on the day or later.
+-- Birthdays and the anniversary are dates without a year, 'MM-DD'. Set them
+-- in add-members.sql, not here (this file is public).
+-- ---------------------------------------------------------------------
+alter table public.members add column if not exists birthday text check (birthday ~ '^[01][0-9]-[0-3][0-9]$');
+alter table public.settings add column if not exists anniversary text check (anniversary ~ '^[01][0-9]-[0-3][0-9]$');
+
+create table if not exists public.gifts (
+  id         bigint generated always as identity primary key,
+  day        date not null,
+  from_id    uuid not null default auth.uid() references public.members(user_id) on delete cascade,
+  to_id      uuid not null references public.members(user_id) on delete cascade,
+  occasion   text not null check (occasion in ('advent', 'birthday', 'anniversary')),
+  opened_at  timestamptz,
+  created_at timestamptz not null default now(),
+  constraint gift_one_per_day unique (day, from_id),
+  constraint gift_to_someone_else check (to_id <> from_id)
+);
+
+create table if not exists public.gift_contents (
+  gift_id    bigint primary key references public.gifts(id) on delete cascade,
+  note       text check (char_length(note) <= 500),
+  kind       text check (kind in ('photo', 'gif', 'sticker', 'audio', 'video')), -- null = just the note
+  body       text check (char_length(body) <= 2000),                             -- GIPHY link
+  media_path text,                                                                -- photo, drawing, audio, video
+  aspect     real check (aspect between 0.1 and 10),
+  duration   real check (duration between 0 and 600),
+  constraint gift_has_something check (kind is not null or char_length(btrim(coalesce(note, ''))) > 0),
+  constraint gift_content_fields check (
+    (kind is null and media_path is null and body is null)
+    or (kind in ('photo', 'audio', 'video') and media_path is not null)
+    or (kind in ('gif', 'sticker') and body ~ '^https://(media[0-9]*|i)\.giphy\.com/')
+  )
+);
+
+-- What kind of box (if any) `giver` can give `receiver` on day `d`
+create or replace function public.gift_occasion(d date, giver uuid, receiver uuid)
+returns text
+language sql stable security definer set search_path = ''
+as $$
+  select case
+    when to_char(d, 'MM-DD') = (select birthday from public.members where user_id = receiver) then 'birthday'
+    when to_char(d, 'MM-DD') = (select birthday from public.members where user_id = giver) then null
+    when to_char(d, 'MM-DD') = (select anniversary from public.settings) then 'anniversary'
+    when extract(month from d) = 12 and extract(day from d) <= 24 then 'advent'
+  end;
+$$;
+
+-- Fill (or refill) your box for a day. Replaces your unopened box for that day.
+create or replace function public.create_gift(
+  g_day date, g_note text, g_kind text, g_body text, g_path text, g_aspect real, g_duration real
+)
+returns bigint
+language plpgsql security definer set search_path = ''
+as $$
+declare receiver uuid; occ text; gid bigint;
+begin
+  if not public.is_member() then raise exception 'Not a member'; end if;
+  if g_day < public.board_today() then raise exception 'That day is over'; end if;
+  if g_day > public.board_today() + 400 then raise exception 'That''s too far ahead'; end if;
+  select user_id into receiver from public.members where user_id <> auth.uid() limit 1;
+  if receiver is null then raise exception 'There''s nobody to give it to'; end if;
+  occ := public.gift_occasion(g_day, auth.uid(), receiver);
+  if occ is null then raise exception 'There''s no box to fill on that day'; end if;
+  if g_path is not null and g_path not like auth.uid()::text || '/%' then raise exception 'Not your file'; end if;
+  if exists (select 1 from public.gifts where day = g_day and from_id = auth.uid() and opened_at is not null) then
+    raise exception 'That box has already been opened';
+  end if;
+  delete from public.gifts where day = g_day and from_id = auth.uid();
+  insert into public.gifts (day, from_id, to_id, occasion)
+    values (g_day, auth.uid(), receiver, occ) returning id into gid;
+  insert into public.gift_contents (gift_id, note, kind, body, media_path, aspect, duration)
+    values (gid, nullif(btrim(g_note), ''), g_kind, g_body, g_path, g_aspect, g_duration);
+  return gid;
+end $$;
+
+-- The recipient opens a box (its day or later)
+create or replace function public.open_gift(gift_id bigint)
+returns void
+language sql security definer set search_path = ''
+as $$
+  update public.gifts set opened_at = now()
+   where id = gift_id and to_id = auth.uid() and day <= public.board_today() and opened_at is null;
+$$;
+
+alter table public.gifts enable row level security;
+alter table public.gift_contents enable row level security;
+
+drop policy if exists "see own boxes, and boxes for me from their day" on public.gifts;
+create policy "see own boxes, and boxes for me from their day"
+  on public.gifts for select to authenticated
+  using (from_id = auth.uid() or (to_id = auth.uid() and day <= public.board_today()));
+
+drop policy if exists "take back unopened boxes" on public.gifts;
+create policy "take back unopened boxes"
+  on public.gifts for delete to authenticated
+  using (from_id = auth.uid() and opened_at is null);
+
+drop policy if exists "see inside own boxes, or once opened" on public.gift_contents;
+create policy "see inside own boxes, or once opened"
+  on public.gift_contents for select to authenticated
+  using (exists (
+    select 1 from public.gifts g
+     where g.id = gift_id
+       and (g.from_id = auth.uid() or (g.to_id = auth.uid() and g.opened_at is not null))
+  ));
+-- no insert/update policies: boxes are filled through create_gift()
+
+do $$
+begin
+  alter publication supabase_realtime add table public.gifts;
+exception when duplicate_object then null;
+end $$;

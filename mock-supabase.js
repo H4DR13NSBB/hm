@@ -24,6 +24,9 @@ const ENTRY_COLS = ["day", "time", "kind", "title", "place", "url", "confirmatio
 const EXPENSE_COLS = ["kind", "paid_by", "amount_cents", "currency", "note", "spent_on"];
 const TABLES = {
   items:      { key: "duo-demo-items",      editable: ["x", "y", "w", "size", "body"] },
+  // filled through the create_gift function only, like the real database
+  gifts:         { key: "duo-demo-gifts",         editable: [] },
+  gift_contents: { key: "duo-demo-gift-contents", editable: [] },
   lists: {
     key: "duo-demo-lists", editable: ["name"], by: "created_by",
     fields: ["name", "trip_id"], required: ["name"], defaults: { trip_id: null },
@@ -60,6 +63,11 @@ const TABLES = {
     fields: ["kind", "cells", "x_id", "o_id", "next_id", "moves"], required: ["kind", "cells", "x_id", "o_id", "next_id"],
     defaults: { moves: 0, winner: null },
   },
+  sketches: {
+    key: "duo-demo-sketches", editable: ["guesses", "status", "finished_at", "pinned"], by: "drawer_id",
+    fields: ["word", "strokes", "guesser_id"], required: ["word", "strokes", "guesser_id"],
+    defaults: { guesses: [], status: "guessing", finished_at: null, pinned: false },
+  },
   postcards: {
     key: "duo-demo-postcards", editable: [], by: "from_id",
     fields: ["to_id", "stamp", "front_image", "front_text", "front_bg", "back_image", "back_text", "back_bg",
@@ -86,6 +94,7 @@ const isDelivered = (c) => Date.parse(c.delivers_at) <= Date.now();
 const CASCADE = {
   lists: [["list_items", "list_id"]],
   trips: [["trip_entries", "trip_id"], ["trip_expenses", "trip_id"], ["lists", "trip_id"]],
+  gifts: [["gift_contents", "gift_id"]],
 };
 
 const wait = (ms = LATENCY) => new Promise((r) => setTimeout(r, ms));
@@ -107,6 +116,20 @@ function addDays(day, n) {
   const d = new Date(day + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+// Gift box days in the demo: today is the anniversary (so there's a box to
+// try right away), and Sam's birthday is in three days.
+const demoBirthdays = () => ({ [DEMO_USERS[0].id]: "06-15", [DEMO_USERS[1].id]: addDays(today(), 3).slice(5) });
+const demoAnniversary = () => today().slice(5);
+/** Same as gift_occasion() in schema.sql */
+function giftOccasion(day, giver, receiver) {
+  const md = day.slice(5), b = demoBirthdays();
+  if (md === b[receiver]) return "birthday";
+  if (md === b[giver]) return null;
+  if (md === demoAnniversary()) return "anniversary";
+  if (md.startsWith("12-") && Number(md.slice(3)) <= 24) return "advent";
+  return null;
 }
 
 // ---------- photos in IndexedDB ----------
@@ -161,6 +184,13 @@ function seed() {
 
   if (!localStorage.getItem(TABLES.trips.key)) seedTrips(a, b, ago);
   if (!localStorage.getItem(TABLES.postcards.key)) seedPostcards(a, b);
+  if (!localStorage.getItem(TABLES.gifts.key)) {
+    save("gifts", [{ id: 1, day: today(), from_id: b.id, to_id: a.id, occasion: "anniversary", opened_at: null, created_at: ago(600) }]);
+    save("gift_contents", [{
+      gift_id: 1, note: "Happy anniversary ♡\nSame sunset next year?", kind: "photo", body: null,
+      media_path: "demo/sunset.jpg", aspect: 1.5, duration: null,
+    }]);
+  }
 
   if (localStorage.getItem(TABLES.items.key)) return Promise.resolve();
   const t = today();
@@ -321,10 +351,12 @@ export function createMockClient() {
     }
     if (table === "items") {
       if (p.kind === "text" && !p.body?.trim()) return null;
+      if ((p.kind === "audio" || p.kind === "video") && !p.image_path) return null;
       return {
         id, day: today(), author_id: me(), kind: p.kind, x: p.x, y: p.y,
         w: p.w ?? null, aspect: p.aspect ?? null, size: p.size ?? null,
-        body: p.body ?? null, image_path: p.image_path ?? null, created_at: now, updated_at: now,
+        body: p.body ?? null, image_path: p.image_path ?? null, duration: p.duration ?? null,
+        created_at: now, updated_at: now,
       };
     }
     return null;
@@ -348,6 +380,8 @@ export function createMockClient() {
     if (table === "items") return row.author_id === me() && row.day === today();
     if (table === "postcards") return false; // once posted, it's out of your hands
     if (table === "games") return row.next_id === me() && !row.winner; // only on your turn
+    if (table === "gifts") return row.from_id === me() && !row.opened_at;  // take back unopened boxes
+    if (table === "gift_contents") return false;
     return true;
   }
 
@@ -357,9 +391,10 @@ export function createMockClient() {
     const one = (data) => (q.single ? data[0] ?? null : data);
 
     if (q.table === "members") {
-      return { data: one(DEMO_USERS.map((u) => ({ user_id: u.id, display_name: u.display_name }))), error: null };
+      const b = demoBirthdays();
+      return { data: one(DEMO_USERS.map((u) => ({ user_id: u.id, display_name: u.display_name, birthday: b[u.id] }))), error: null };
     }
-    if (q.table === "settings") return { data: one([{ timezone: TIMEZONE }]), error: null };
+    if (q.table === "settings") return { data: one([{ timezone: TIMEZONE, anniversary: demoAnniversary() }]), error: null };
     if (!TABLES[q.table]) return fail(`Demo: unknown table ${q.table}`);
 
     const all = rows(q.table);
@@ -368,6 +403,15 @@ export function createMockClient() {
       let data = all.filter((r) => matches(r, q.filters));
       // like RLS: you see what you sent, and what was sent to you once it has arrived
       if (q.table === "postcards") data = data.filter((c) => c.from_id === me() || (c.to_id === me() && isDelivered(c)));
+      // gift boxes: yours, and ones for you from their day; what's inside only once opened
+      if (q.table === "gifts") data = data.filter((g) => g.from_id === me() || (g.to_id === me() && g.day <= today()));
+      if (q.table === "gift_contents") {
+        const gifts = rows("gifts");
+        data = data.filter((c) => {
+          const g = gifts.find((x) => x.id === c.gift_id);
+          return g && (g.from_id === me() || (g.to_id === me() && g.opened_at));
+        });
+      }
       if (q.order) {
         const [col, asc] = q.order;
         data.sort((x, y) => (x[col] < y[col] ? -1 : x[col] > y[col] ? 1 : 0) * (asc ? 1 : -1));
@@ -463,6 +507,35 @@ export function createMockClient() {
       }
       if (name === "mail_in_transit") {
         return { data: rows("postcards").filter((c) => c.to_id === me() && !isDelivered(c)).length, error: null };
+      }
+      if (name === "create_gift") {
+        const receiver = DEMO_USERS.find((u) => u.id !== me()).id;
+        const occasion = giftOccasion(args.g_day, me(), receiver);
+        if (args.g_day < today()) return fail("That day is over");
+        if (!occasion) return fail("There's no box to fill on that day");
+        if (!args.g_kind && !args.g_note?.trim()) return fail("new row violates check constraint");
+        const all = rows("gifts");
+        if (all.some((g) => g.day === args.g_day && g.from_id === me() && g.opened_at)) return fail("That box has already been opened");
+        deleteRows("gifts", (g) => g.day === args.g_day && g.from_id === me());
+        const rest = rows("gifts");
+        const g = { id: nextId(all), day: args.g_day, from_id: me(), to_id: receiver, occasion, opened_at: null, created_at: new Date().toISOString() };
+        save("gifts", [...rest, g]);
+        save("gift_contents", [...rows("gift_contents"), {
+          gift_id: g.id, note: args.g_note?.trim() || null, kind: args.g_kind ?? null, body: args.g_body ?? null,
+          media_path: args.g_path ?? null, aspect: args.g_aspect ?? null, duration: args.g_duration ?? null,
+        }]);
+        emit("gifts", "INSERT", g);
+        return { data: g.id, error: null };
+      }
+      if (name === "open_gift") {
+        const all = rows("gifts");
+        const g = all.find((r) => r.id === args.gift_id && r.to_id === me() && r.day <= today() && !r.opened_at);
+        if (g) {
+          g.opened_at = new Date().toISOString();
+          save("gifts", all);
+          emit("gifts", "UPDATE", g);
+        }
+        return { data: null, error: null };
       }
       if (name === "mark_postcard_read") {
         const all = rows("postcards");

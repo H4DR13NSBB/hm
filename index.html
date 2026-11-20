@@ -61,7 +61,10 @@
         <img src="icons/icon-180.png" alt="" width="32" height="32" />
         <div id="legend" class="legend"></div>
       </div>
-      <button class="signout-btn ghost small">Sign out</button>
+      <div class="topbar-actions">
+        <button type="button" id="gift-btn" class="icon-btn small" aria-label="Gift boxes">🎁<b id="gift-badge" class="tab-badge" hidden></b></button>
+        <button class="signout-btn ghost small">Sign out</button>
+      </div>
     </header>
 
     <div id="demo-banner" hidden>
@@ -272,21 +275,43 @@
         <div class="pane-title">
           <h2>Games</h2>
         </div>
-        <div id="g-missing" class="placeholder" hidden>
-          <div class="placeholder-icon">🎲</div>
-          <p class="muted">Almost there: run the <b>Games</b> part of <code>supabase/schema.sql</code> in the Supabase SQL Editor, then reopen Duo.</p>
-        </div>
         <div id="g-main">
-          <div id="g-kinds" class="seg-toggle" role="tablist">
+          <div id="g-kinds" class="seg-toggle g-kinds" role="tablist">
             <button type="button" data-game="tictactoe">Tic-tac-toe</button>
             <button type="button" data-game="connect4">Connect Four</button>
+            <button type="button" data-game="sketch">Draw &amp; Guess</button>
           </div>
-          <div id="g-score" class="g-score"></div>
-          <p id="g-status" class="g-status" role="status"></p>
-          <div id="g-board" class="g-board"></div>
-          <div class="g-actions">
-            <button type="button" id="g-again" class="primary" hidden>Play again</button>
-            <button type="button" id="g-restart" class="ghost small" hidden>Start over</button>
+
+          <div id="g-play">
+            <div id="g-missing" class="placeholder" hidden>
+              <div class="placeholder-icon">🎲</div>
+              <p class="muted">Almost there: run the <b>Games</b> part of <code>supabase/schema.sql</code> in the Supabase SQL Editor, then reopen Duo.</p>
+            </div>
+            <div id="g-game">
+              <div id="g-score" class="g-score"></div>
+              <p id="g-status" class="g-status" role="status"></p>
+              <div id="g-board" class="g-board"></div>
+              <div class="g-actions">
+                <button type="button" id="g-again" class="primary" hidden>Play again</button>
+                <button type="button" id="g-restart" class="ghost small" hidden>Start over</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Draw & Guess -->
+          <div id="sk-main" hidden>
+            <div id="sk-missing" class="placeholder" hidden>
+              <div class="placeholder-icon">🖍️</div>
+              <p class="muted">Almost there: run the <b>Draw &amp; Guess</b> part of <code>supabase/schema.sql</code> in the Supabase SQL Editor, then reopen Duo.</p>
+            </div>
+            <div id="sk-body">
+              <div id="sk-score" class="g-score"></div>
+              <button type="button" id="sk-draw" class="primary big sk-draw">🖍️ Draw something for <span id="sk-other"></span></button>
+              <section id="sk-todo"></section>
+              <section id="sk-sent"></section>
+              <section id="sk-done"></section>
+              <p id="sk-empty" class="muted center">Pick a word, draw it, and see if they get it. Their guesses show up live.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -328,6 +353,8 @@
       <button type="button" data-add="photo">📷 Photo</button>
       <button type="button" data-add="draw">🖍️ Draw</button>
       <button type="button" data-add="gif">🎞️ GIF</button>
+      <button type="button" data-add="audio">🎙️ Voice</button>
+      <button type="button" data-add="video">🎥 Video</button>
     </div>
 
     <div id="toolbar" class="pop" hidden>
@@ -340,6 +367,7 @@
     <div id="width-handle" role="slider" aria-label="Drag to change the note's width" hidden></div>
 
     <input id="file-input" type="file" accept="image/*" hidden />
+    <input id="pick-input" type="file" hidden />
     <div id="toast" role="status" hidden></div>
   </section>
 
@@ -402,6 +430,7 @@
         <button type="button" data-size="30" aria-label="Thick"><i style="--d:17px"></i></button>
       </div>
     </div>
+    <p id="draw-prompt" hidden></p>
     <canvas id="draw-pad"></canvas>
     <div class="sheet-actions">
       <button type="button" id="draw-undo">↶ Undo</button>
@@ -409,6 +438,45 @@
       <span class="spacer"></span>
       <button type="button" data-close>Cancel</button>
       <button type="button" id="draw-save" class="primary">Add</button>
+    </div>
+  </dialog>
+
+  <!-- Draw & Guess: pick a word -->
+  <dialog id="sk-pick" class="sheet">
+    <h2>What will you draw?</h2>
+    <div id="sk-words" class="sk-words"></div>
+    <button type="button" id="sk-more" class="ghost small">🔀 Other words</button>
+    <form id="sk-own" class="field-inline">
+      <input id="sk-own-word" type="text" maxlength="40" autocomplete="off" aria-label="Your own word" placeholder="Or your own word…" />
+      <button type="submit">Draw it</button>
+    </form>
+    <div class="sheet-actions">
+      <span class="spacer"></span>
+      <button type="button" data-close>Cancel</button>
+    </div>
+  </dialog>
+
+  <!-- Draw & Guess: one drawing -->
+  <dialog id="sk-round" class="sheet">
+    <div class="sk-r-head">
+      <h2 id="sk-r-title"></h2>
+      <button type="button" id="sk-r-close" class="icon-btn small" aria-label="Close">✕</button>
+    </div>
+    <div class="sk-stage">
+      <canvas id="sk-canvas"></canvas>
+      <button type="button" id="sk-replay" class="icon-btn small" aria-label="Watch it being drawn again">↻</button>
+    </div>
+    <div id="sk-r-word" class="sk-word"></div>
+    <p id="sk-r-status" class="muted center"></p>
+    <form id="sk-guess" class="field-inline">
+      <input id="sk-guess-input" type="text" maxlength="40" autocomplete="off" autocapitalize="off" enterkeyhint="send" aria-label="Your guess" placeholder="Your guess…" />
+      <button type="submit" class="primary">Guess</button>
+    </form>
+    <div id="sk-r-guesses" class="sk-chips"></div>
+    <div class="sheet-actions">
+      <button type="button" id="sk-giveup" class="ghost danger-text">Give up</button>
+      <span class="spacer"></span>
+      <button type="button" id="sk-pin" class="primary">📌 Put on today's board</button>
     </div>
   </dialog>
 
@@ -558,6 +626,80 @@
       <div id="pc-viewer-card" class="viewer-card"></div>
       <p id="pc-viewer-meta"></p>
       <p class="viewer-hint">Tap the card to flip it over</p>
+    </div>
+  </dialog>
+
+  <!-- Recording a voice note or video -->
+  <dialog id="rec" class="sheet">
+    <div class="compose-head">
+      <h2 id="rec-title">🎙️ Voice note</h2>
+      <button type="button" class="icon-btn small" data-close aria-label="Close">✕</button>
+    </div>
+    <div class="rec-stage">
+      <video id="rec-live" playsinline muted autoplay hidden></video>
+      <video id="rec-review" playsinline controls hidden></video>
+      <div id="rec-mic" class="rec-mic" aria-hidden="true">🎙️</div>
+      <audio id="rec-review-audio" controls hidden></audio>
+    </div>
+    <p id="rec-status" class="muted center" role="status"></p>
+    <div class="rec-controls">
+      <button type="button" id="rec-flip" class="icon-btn" aria-label="Switch camera">🔄</button>
+      <button type="button" id="rec-btn" class="rec-btn" aria-label="Record"></button>
+      <button type="button" id="rec-retake" class="ghost small" hidden>Retake</button>
+    </div>
+    <div class="sheet-actions">
+      <button type="button" id="rec-file" class="ghost small">Choose a file…</button>
+      <span class="spacer"></span>
+      <button type="button" data-close>Cancel</button>
+      <button type="button" id="rec-use" class="primary" disabled>Use</button>
+    </div>
+  </dialog>
+
+  <!-- Gift boxes: the ones you can fill -->
+  <dialog id="gift-plan" class="sheet">
+    <div class="compose-head">
+      <h2>🎁 Gift boxes</h2>
+      <button type="button" class="icon-btn small" data-close aria-label="Close">✕</button>
+    </div>
+    <div id="gp-body"></div>
+  </dialog>
+
+  <!-- Gift boxes: filling one -->
+  <dialog id="gift-compose" class="sheet">
+    <form id="gc-form">
+      <div class="compose-head">
+        <h2 id="gc-title">Box</h2>
+        <button type="button" class="icon-btn small" data-close aria-label="Close">✕</button>
+      </div>
+      <p id="gc-sub" class="muted small-note"></p>
+      <div id="gc-preview" class="gc-preview"></div>
+      <div id="gc-kinds" class="gc-kinds">
+        <button type="button" data-gk="photo">📷 Photo</button>
+        <button type="button" data-gk="draw">🖍️ Drawing</button>
+        <button type="button" data-gk="gif">🎞️ GIF</button>
+        <button type="button" data-gk="audio">🎙️ Voice</button>
+        <button type="button" data-gk="video">🎥 Video</button>
+      </div>
+      <button type="button" id="gc-remove" class="ghost small danger-text" hidden>Remove it</button>
+      <label class="field">Note
+        <textarea id="gc-note" rows="3" maxlength="500"></textarea>
+      </label>
+      <div class="sheet-actions">
+        <button type="button" id="gc-delete" class="ghost danger-text" hidden>Empty the box</button>
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" id="gc-save" class="primary">Wrap it 🎁</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Gift boxes: opening one / looking inside -->
+  <dialog id="gift-view">
+    <button type="button" id="gv-close" class="icon-btn" aria-label="Close">✕</button>
+    <div class="gv-body">
+      <p id="gv-title"></p>
+      <div id="gv-stage" class="gv-stage"></div>
+      <p id="gv-meta"></p>
     </div>
   </dialog>
 

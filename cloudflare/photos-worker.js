@@ -19,10 +19,12 @@
 //   GIPHY_KEY         secret  GIPHY API key, for GIF & sticker search
 //   JWT_SECRET        secret  optional: only for projects still on the legacy HS256 JWT secret
 
-const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BYTES = 5 * 1024 * 1024;        // photos
+const MAX_MEDIA_BYTES = 30 * 1024 * 1024; // voice notes and videos
 const TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MEDIA_TYPES = ["audio/mp4", "audio/mpeg", "audio/webm", "audio/aac", "video/mp4", "video/quicktime", "video/webm"];
 const LINK_TTL = 60 * 60; // seconds
-const PATH_RE = /^[0-9a-f-]{36}\/[0-9a-zA-Z-]{8,64}\.(jpg|png|webp)$/;
+const PATH_RE = /^[0-9a-f-]{36}\/[0-9a-zA-Z-]{8,64}\.(jpg|png|webp|m4a|mp3|aac|mp4|mov|webm)$/;
 
 export default {
   async fetch(req, env) {
@@ -31,7 +33,7 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
 
     try {
-      if (req.method === "GET" && url.pathname.startsWith("/p/")) return await view(url, env);
+      if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/p/")) return await view(req, url, env);
 
       const user = await authenticate(req, env);
       if (!user) return json({ error: "Not signed in" }, 401, cors);
@@ -67,11 +69,14 @@ export default {
 
         if (req.method === "PUT") {
           const type = (req.headers.get("content-type") || "").split(";")[0];
-          if (!TYPES.includes(type)) return json({ error: "Not an image" }, 415, cors);
+          const media = MEDIA_TYPES.includes(type);
+          if (!media && !TYPES.includes(type)) return json({ error: "Not an image, sound or video" }, 415, cors);
+          const max = media ? MAX_MEDIA_BYTES : MAX_BYTES;
+          const tooBig = media ? "File too large (max 30 MB)" : "Photo too large";
           const size = Number(req.headers.get("content-length") || 0);
-          if (size > MAX_BYTES) return json({ error: "Photo too large" }, 413, cors);
+          if (size > max) return json({ error: tooBig }, 413, cors);
           const body = await req.arrayBuffer();
-          if (body.byteLength > MAX_BYTES) return json({ error: "Photo too large" }, 413, cors);
+          if (body.byteLength > max) return json({ error: tooBig }, 413, cors);
           if (await env.PHOTOS.head(path)) return json({ error: "Already exists" }, 409, cors);
           await env.PHOTOS.put(path, body, { httpMetadata: { contentType: type } });
           return json({ path }, 200, cors);
@@ -89,7 +94,8 @@ export default {
 };
 
 // ---------- viewing ----------
-async function view(url, env) {
+// Supports Range requests: iPhone Safari won't play a video without them.
+async function view(req, url, env) {
   const path = decodeURIComponent(url.pathname.slice(3));
   const exp = Number(url.searchParams.get("exp"));
   const sig = url.searchParams.get("sig") || "";
@@ -97,13 +103,29 @@ async function view(url, env) {
   if (!PATH_RE.test(path) || !(exp > now) || !timingSafeEqual(sig, await sign(env, `${path}:${exp}`))) {
     return new Response("Link expired", { status: 403 });
   }
-  const obj = await env.PHOTOS.get(path);
+  const ranged = req.headers.has("range");
+  const obj = req.method === "HEAD"
+    ? await env.PHOTOS.head(path)
+    : await env.PHOTOS.get(path, ranged ? { range: req.headers } : undefined);
   if (!obj) return new Response("Not found", { status: 404 });
+  const headers = {
+    "content-type": obj.httpMetadata?.contentType || "image/jpeg",
+    "cache-control": `private, max-age=${exp - now}`,
+    "etag": obj.httpEtag,
+    "accept-ranges": "bytes",
+  };
+  const r = obj.range;
+  if (!ranged || !r || req.method === "HEAD") {
+    return new Response(obj.body ?? null, { headers: { ...headers, "content-length": String(obj.size) } });
+  }
+  const offset = "suffix" in r ? obj.size - r.suffix : r.offset ?? 0;
+  const length = "suffix" in r ? r.suffix : r.length ?? obj.size - offset;
   return new Response(obj.body, {
+    status: 206,
     headers: {
-      "content-type": obj.httpMetadata?.contentType || "image/jpeg",
-      "cache-control": `private, max-age=${exp - now}`,
-      "etag": obj.httpEtag,
+      ...headers,
+      "content-range": `bytes ${offset}-${offset + length - 1}/${obj.size}`,
+      "content-length": String(length),
     },
   });
 }

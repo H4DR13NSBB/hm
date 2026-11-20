@@ -1,5 +1,6 @@
 // =============================================================================
-// Games tab: Tic-tac-toe and Connect Four, played live between your two phones.
+// Games tab: Tic-tac-toe and Connect Four, played live between your two phones,
+// and Draw & Guess (sketch.js), which this tab hosts.
 // Each game is one row in `games`. A move updates the row, and the database
 // only lets the person whose turn it is do that. Starting a new game inserts a
 // new row, so the old ones stay behind as the score.
@@ -50,8 +51,9 @@ function winningLine(kind, cells) {
  * @param deps.getMembers  () => [{ user_id, display_name }]
  * @param deps.colorOf     Map user id -> CSS colour
  * @param deps.toast       (message) => void
+ * @param deps.sketch      the Draw & Guess module, shown as one more game
  */
-export function createGames({ sb, getMe, getMembers, colorOf, toast }) {
+export function createGames({ sb, getMe, getMembers, colorOf, toast, sketch }) {
   const games = new Map(); // id -> games row
   let channel = null;
   let missing = false;     // table not created yet (schema.sql not re-run)
@@ -59,10 +61,12 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast }) {
   let lastSeen = new Map(); // kind -> cells shown last time (to animate the new mark)
 
   let kind = "tictactoe";
-  try { if (KINDS[localStorage.getItem(GAME_KEY)]) kind = localStorage.getItem(GAME_KEY); } catch {}
+  const isKind = (k) => !!KINDS[k] || k === "sketch";
+  try { if (isKind(localStorage.getItem(GAME_KEY))) kind = localStorage.getItem(GAME_KEY); } catch {}
 
   // ---------- lifecycle ----------
   async function start() {
+    sketch.start();
     await load();
     channel = sb
       .channel("games")
@@ -75,6 +79,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast }) {
   }
 
   function stop() {
+    sketch.stop();
     if (channel) sb.removeChannel(channel);
     channel = null;
     games.clear();
@@ -83,6 +88,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast }) {
   }
 
   async function load() {
+    sketch.load();
     const { data, error } = await sb.from("games").select("*").order("id");
     missing = !!error && /does not exist|schema cache|unknown table/i.test(error.message);
     if (error && !missing) toast("Couldn't load games: " + error.message);
@@ -110,18 +116,21 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast }) {
 
   // ---------- rendering ----------
   function render() {
-    $("g-missing").hidden = !missing;
-    $("g-main").hidden = missing;
-    const turns = missing ? 0 : myTurns();
+    const turns = (missing ? 0 : myTurns()) + sketch.myTurns();
     $("games-badge").hidden = !turns;
     $("games-badge").textContent = turns;
-    if (missing || !meId()) return;
+    if (!meId()) return;
 
     for (const b of $("g-kinds").children) {
-      const g = current(b.dataset.game);
-      b.setAttribute("aria-selected", String(b.dataset.game === kind));
-      b.classList.toggle("your-turn", !!g && !g.winner && g.next_id === meId());
+      const k = b.dataset.game, g = KINDS[k] && current(k);
+      b.setAttribute("aria-selected", String(k === kind));
+      b.classList.toggle("your-turn", k === "sketch" ? sketch.myTurns() > 0 : !!g && !g.winner && g.next_id === meId());
     }
+    $("g-play").hidden = kind === "sketch";
+    $("sk-main").hidden = kind !== "sketch";
+    $("g-missing").hidden = !missing;
+    $("g-game").hidden = missing;
+    if (kind === "sketch" || missing) return;
 
     const g = current();
     const cells = g?.cells ?? "-".repeat(size(kind));
@@ -316,7 +325,7 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast }) {
   // ---------- buttons ----------
   $("g-kinds").addEventListener("click", (e) => {
     const k = e.target.closest("[data-game]")?.dataset.game;
-    if (!k || !KINDS[k]) return;
+    if (!isKind(k)) return;
     kind = k;
     try { localStorage.setItem(GAME_KEY, k); } catch {}
     render();
@@ -326,5 +335,5 @@ export function createGames({ sb, getMe, getMembers, colorOf, toast }) {
     if (confirm(`Give up this ${KINDS[kind].name} game and start a new one? It won't count.`)) again();
   });
 
-  return { start, stop, load };
+  return { start, stop, load, render };
 }

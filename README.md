@@ -18,6 +18,10 @@ duo/
 ├── questions.js            Questions tab
 ├── questions-data.js       the built-in question deck
 ├── games.js                Games tab
+├── sketch.js               Draw & Guess (inside the Games tab)
+├── drawing.js              painting pad strokes (board drawings + Draw & Guess)
+├── media.js                recording + playing voice notes and videos
+├── gifts.js                gift boxes (advent calendar, birthdays, anniversary)
 ├── mock-supabase.js        in-browser demo backend (used until config.js has real keys)
 ├── config.js               your Supabase URL + anon key
 ├── manifest.webmanifest    Home Screen app settings
@@ -33,10 +37,18 @@ duo/
 ## How the board works
 
 - **Today** is at the top. Tap empty space (or the **+** button) to add a **note**, a **photo**, a **drawing**,
-  or a **GIF / sticker** at that spot.
+  a **GIF / sticker**, a **voice note** or a **video** at that spot.
 - Tap one of **your own** items to select it. Then drag to move it, use **− / +** to resize, ✏️ to edit, or 🗑 to delete.
 - Today's section always keeps empty room below the lowest item, so you just keep going down for more space.
 - Photos are resized automatically on upload (max 1600 px, ~300 KB) and placed at a sensible size.
+- **Voice notes** (up to 3 min) and **videos** (up to 1 min, 30 MB) are recorded in the app, or picked from a file.
+  Tap to play; on your own, tap the ▶ (tapping elsewhere selects it). They need the photos Worker (R2).
+- **Gift boxes** (🎁 at the top, `gifts.js`): hide a note plus a photo, drawing, GIF, voice note or video in a box
+  for the other person to open. Boxes exist on **1–24 December** (an advent calendar: one each per day, with the
+  date on the box), on **birthdays** (only the other person gives one) and on the **anniversary** (one each).
+  Fill them whenever you like: a box shows up at the top of its day on the board, and only then. What's inside stays
+  hidden from the other person (by the database, not just the screen) until they open it, on the day or later.
+  You can change or empty your box until it's opened. Birthdays and the anniversary are set in `add-members.sql`.
 - **At midnight** (in the timezone you set) today's section locks for both of you, enforced by the database.
   A new empty day appears on top and the board shifts down.
 - Each person has their own colour. Positions are stored relative to the board width, so it looks the same on every phone.
@@ -65,6 +77,9 @@ duo/
   first move is X; after that, the one who was O last time starts. You can only play on your turn (the database
   checks it, one mark at a time), and a badge on the tab shows when it's your move. Finished games are kept,
   so each game has a running score. **Start over** abandons a game without counting it.
+  **Draw & Guess:** pick one of three words (or your own) and draw it; the other person watches it being
+  drawn again stroke by stroke and guesses. After three wrong guesses the first letter is shown. Drawings are
+  kept as pen strokes, so once a round is over either of you can **put it on today's board**, with a caption.
 
 - **Mail** (`mail.js`): send each other postcards. Each side can have a photo, text or both, on a background
   colour you pick; the back is a classic postcard with your message on the left and a stamp you choose on the right
@@ -88,8 +103,8 @@ Place lookups ("Find" and automatic pins) use OpenStreetMap's free Nominatim ser
 
 Search goes through the `duo-photos` Worker, which holds the GIPHY API key so it never appears in this public repo.
 Get a free key at developers.giphy.com (create an **API** app), then in `cloudflare/`:
-`npx wrangler secret put GIPHY_KEY` and `npx wrangler@4 deploy`. Also run the GIF part of `supabase/schema.sql`
-(the `items_kind_check` / `item_content` lines) once in the SQL Editor. The board stores only GIPHY's link, not the file.
+`npx wrangler secret put GIPHY_KEY` and `npx wrangler@4 deploy`. Also rerun `supabase/schema.sql` in the SQL Editor
+(it's safe to run again whenever it changes). The board stores only GIPHY's link, not the file.
 
 ## 0. Try it right now (demo mode, no setup)
 
