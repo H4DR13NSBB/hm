@@ -9,8 +9,8 @@
   --border: #e4ddd5;
   --accent: #d9506a;
   --accent-text: #ffffff;
-  --c1: #d9506a;   /* first person's colour */
-  --c2: #2f78b0;   /* second person's colour */
+  --c1: #FF7E27;   /* first person's colour (Hadrien) */
+  --c2: #FD5FF2;   /* second person's colour (Maddy) */
   --error: #b3261e;
   --tap: 44px;     /* Apple's minimum touch target */
   color-scheme: light;
@@ -26,8 +26,8 @@
     --border: #36312d;
     --accent: #e8687f;
     --accent-text: #1a0d10;
-    --c1: #ef7f93;
-    --c2: #6fb0e3;
+    --c1: #FF7E27;
+    --c2: #FD5FF2;
     --error: #ff8a80;
     color-scheme: dark;
   }
@@ -703,6 +703,9 @@ input[type="date"], input[type="time"] { min-height: 46px; }
   pointer-events: none;
 }
 .item.photo img:not([src]) { visibility: hidden; } /* no broken-image icon while loading */
+/* drawings are transparent PNGs: no frame, just the ink */
+.item.photo.drawing { background: none; box-shadow: none; border-radius: 0; cursor: default; }
+.item.photo.drawing img { object-fit: contain; }
 .item.uploading {
   display: grid;
   place-items: center;
@@ -795,6 +798,33 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 #editor-form { display: grid; gap: 12px; }
 #editor-text { resize: none; min-height: 120px; }
 .editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---------- drawing pad ---------- */
+#draw { display: grid; gap: 12px; }
+#draw:not([open]) { display: none; }
+.draw-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.draw-colors, .draw-sizes { display: flex; gap: 6px; }
+.draw-colors button, .draw-sizes button {
+  width: 36px; height: 36px; min-height: 0; padding: 0;
+  border-radius: 50%; display: grid; place-items: center;
+}
+.draw-colors button { background: var(--sw); border: 3px solid var(--surface); box-shadow: 0 0 0 1px var(--border); }
+.draw-sizes button { background: transparent; border: 1px solid var(--border); }
+.draw-sizes i { width: var(--d); height: var(--d); border-radius: 50%; background: var(--text); }
+.draw-colors [aria-checked="true"] { box-shadow: 0 0 0 2px var(--text); }
+.draw-sizes [aria-checked="true"] { border-color: var(--text); border-width: 2px; }
+#draw .sheet-actions { gap: 6px; }
+#draw .sheet-actions button { white-space: nowrap; padding-inline: 14px; }
+#draw-pad {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 60dvh;
+  border-radius: 14px;
+  border: 1px dashed var(--border);
+  background: var(--today);
+  touch-action: none;   /* fingers draw, they don't scroll */
+  display: block;
+}
 
 /* ---------- lightbox ---------- */
 #lightbox {
