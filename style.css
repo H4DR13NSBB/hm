@@ -92,6 +92,7 @@ button.small, .icon-btn.small { font-size: .9rem; }
   background: transparent;
 }
 .icon-btn.small { width: 32px; height: 32px; min-height: 32px; }
+.icon-btn svg, .entry-del svg, #toolbar svg { display: block; }
 
 /* 16px+ font on inputs stops iOS from zooming in on focus */
 input, textarea {
@@ -335,6 +336,8 @@ h2[tabindex="-1"]:focus { outline: none; }
 .entry-text:active { transform: none; opacity: .6; }
 .entry.done .entry-text { color: var(--muted); text-decoration: line-through; }
 .entry-del {
+  display: inline-grid;
+  place-items: center;
   width: 36px;
   min-height: var(--tap);
   padding: 0;
@@ -766,7 +769,7 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 /* six choices: two rows of three, so they fit a small phone */
 #add-menu { display: grid; grid-template-columns: repeat(3, auto); gap: 0; border-radius: 22px; }
 #add-menu button { padding: 0 9px; justify-content: flex-start; text-align: left; }
-#toolbar button { min-width: 40px; padding: 0 10px; font-size: 1.05rem; }
+#toolbar button { display: inline-grid; place-items: center; min-width: 40px; padding: 0 10px; font-size: 1.05rem; }
 #toolbar .danger { color: var(--error); }
 #width-handle {
   position: absolute;
