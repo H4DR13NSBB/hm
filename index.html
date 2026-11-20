@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Duo</title>
+
+  <!-- Home Screen app (iPhone + Android) -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Duo" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="theme-color" content="#f6f3ef" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#161413" media="(prefers-color-scheme: dark)" />
+
+  <link rel="stylesheet" href="style.css" />
+  <!-- handwriting font for postcards (falls back to a system cursive offline) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap" />
+</head>
+<body>
+  <!-- Login -->
+  <section id="login-view" class="center-view" hidden>
+    <form id="login-form" class="card">
+      <img src="icons/icon-180.png" alt="" class="logo" width="72" height="72" />
+      <h1>Duo</h1>
+      <label>Name
+        <input id="login-email" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required />
+      </label>
+      <label>Password
+        <input id="login-password" type="password" autocomplete="current-password" required />
+      </label>
+      <button type="submit" class="primary big">Sign in</button>
+      <p id="login-error" class="error" role="alert"></p>
+      <div id="demo-login" class="demo-box" hidden>
+        <p><b>Demo mode:</b> no Supabase keys in <code>config.js</code> yet, so everything runs in this browser.
+          Open a second tab and sign in as the other person to see both sides.</p>
+        <div id="demo-login-buttons" class="demo-buttons"></div>
+      </div>
+    </form>
+  </section>
+
+  <!-- Signed in, but not one of the two members -->
+  <section id="denied-view" class="center-view" hidden>
+    <div class="card">
+      <h1>Not on the list</h1>
+      <p>This account isn't a member of this space.</p>
+      <button class="signout-btn big">Sign out</button>
+    </div>
+  </section>
+
+  <!-- Main app: the board -->
+  <section id="app-view" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <img src="icons/icon-180.png" alt="" width="32" height="32" />
+        <div id="legend" class="legend"></div>
+      </div>
+      <button class="signout-btn ghost small">Sign out</button>
+    </header>
+
+    <div id="demo-banner" hidden>
+      Demo mode: data stays in this browser.
+      <button type="button" id="demo-reset" class="ghost small">Reset</button>
+    </div>
+
+    <div id="install-hint" hidden>
+      <span>Add Duo to your Home Screen: tap
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-label="Share" class="inline-icon"><path d="M12 3v12M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        then <b>Add to Home Screen</b>.</span>
+      <button type="button" id="install-hint-close" class="icon-btn small" aria-label="Dismiss">✕</button>
+    </div>
+
+    <!-- Tab: Board -->
+    <div id="pane-board" class="pane" role="tabpanel">
+      <main id="board">
+        <div id="days"></div>
+        <p id="board-end" class="muted center" hidden>That's the very beginning ✨</p>
+        <div id="board-sentinel"></div>
+      </main>
+      <button type="button" id="fab" aria-label="Add something">
+        <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+
+    <!-- Tab: Lists -->
+    <div id="pane-lists" class="pane" role="tabpanel" hidden>
+      <div class="pane-scroll">
+        <div id="list-chips" class="chips"></div>
+        <div id="list-body">
+          <div class="list-head">
+            <h2 id="list-title"></h2>
+            <button type="button" id="list-rename" class="icon-btn small" aria-label="Rename list">✏️</button>
+            <button type="button" id="list-delete" class="icon-btn small" aria-label="Delete list">🗑</button>
+          </div>
+          <ul id="list-open" class="entries"></ul>
+          <p id="list-open-empty" class="muted">Nothing here yet. Add the first one below.</p>
+          <details id="list-done-wrap">
+            <summary>Done (<span id="list-done-count">0</span>)</summary>
+            <ul id="list-done" class="entries"></ul>
+            <button type="button" id="list-clear-done" class="ghost small">Clear done items</button>
+          </details>
+        </div>
+        <p id="lists-empty" class="muted center" hidden>No lists yet. Tap <b>+ New list</b> to start one.</p>
+      </div>
+      <form id="list-add" class="bottom-form">
+        <input id="list-add-input" type="text" maxlength="500" placeholder="Add an item…" enterkeyhint="done" autocomplete="off" />
+        <button type="submit" class="send-btn" aria-label="Add">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        </button>
+      </form>
+    </div>
+
+    <!-- Tab: Trips -->
+    <div id="pane-trips" class="pane" role="tabpanel" hidden>
+      <!-- list of trips -->
+      <div id="trips-home" class="pane-scroll">
+        <div class="pane-title">
+          <h2>Trips</h2>
+          <button type="button" id="trip-new" class="primary small">+ New trip</button>
+        </div>
+        <div id="trip-cards"></div>
+        <div id="trips-empty" class="placeholder" hidden>
+          <div class="placeholder-icon">🧳</div>
+          <p class="muted">No trips yet. Tap <b>+ New trip</b> to start planning.</p>
+        </div>
+      </div>
+
+      <!-- one trip -->
+      <div id="trip-detail" hidden>
+        <header class="trip-head">
+          <button type="button" id="trip-back" class="icon-btn" aria-label="All trips">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="trip-head-text">
+            <h2 id="trip-name"></h2>
+            <div id="trip-sub" class="muted"></div>
+          </div>
+          <button type="button" id="trip-edit" class="icon-btn small" aria-label="Edit trip">✏️</button>
+        </header>
+        <nav id="trip-segments" class="segments" role="tablist">
+          <button type="button" data-seg="plan">Plan</button>
+          <button type="button" data-seg="ideas">Ideas</button>
+          <button type="button" data-seg="map">Map</button>
+          <button type="button" data-seg="packing">Packing</button>
+          <button type="button" data-seg="money">Money</button>
+        </nav>
+        <form id="idea-paste" class="paste-form" hidden>
+          <textarea id="idea-paste-input" rows="1" placeholder="Paste a Google Maps link…" autocomplete="off"></textarea>
+          <button type="submit" id="idea-paste-btn" class="small">Look up</button>
+        </form>
+        <div id="trip-body" class="pane-scroll"></div>
+        <div id="trip-map-wrap" hidden>
+          <div id="trip-map"></div>
+          <p id="trip-map-note" hidden></p>
+        </div>
+        <form id="pack-add" class="bottom-form" hidden>
+          <input id="pack-add-input" type="text" maxlength="500" placeholder="Add something to pack…" enterkeyhint="done" autocomplete="off" />
+          <button type="submit" class="send-btn" aria-label="Add">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Tab: Mail -->
+    <div id="pane-mail" class="pane" role="tabpanel" hidden>
+      <div class="pane-scroll">
+        <div class="pane-title">
+          <h2>Mailbox</h2>
+          <button type="button" id="mail-write" class="primary small">✍️ Write a postcard</button>
+        </div>
+        <div id="mail-segs" class="seg-toggle" role="tablist">
+          <button type="button" data-mseg="inbox">Inbox</button>
+          <button type="button" data-mseg="sent">Sent</button>
+        </div>
+        <div id="mail-transit" class="mail-transit" hidden>
+          <span class="mail-transit-icon" aria-hidden="true">🚚</span>
+          <span id="mail-transit-text"></span>
+        </div>
+        <div id="mail-list" class="mail-grid"></div>
+        <div id="mail-empty" class="placeholder" hidden>
+          <div id="mail-empty-icon" class="placeholder-icon">📭</div>
+          <p id="mail-empty-text" class="muted"></p>
+        </div>
+        <button type="button" id="mail-demo" class="ghost small" hidden>⏩ Demo: deliver everything in the post now</button>
+      </div>
+    </div>
+
+    <!-- Bottom tab bar -->
+    <nav id="tabbar" role="tablist">
+      <button type="button" role="tab" data-tab="board" aria-selected="true">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.5 8h5M7.5 11.5h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="12" y="12" width="5" height="5" rx="1" fill="currentColor"/></svg>
+        <span>Board</span>
+      </button>
+      <button type="button" role="tab" data-tab="lists" aria-selected="false">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3.5 6.5l1.3 1.3 2.2-2.6M3.5 12l1.3 1.3 2.2-2.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="5" cy="17.5" r="1.4" fill="currentColor"/></svg>
+        <span>Lists</span>
+      </button>
+      <button type="button" role="tab" data-tab="trips" aria-selected="false">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M21 15.5l-8-5V5a1.5 1.5 0 0 0-3 0v5.5l-7 4.5v2l7-2.2V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-4.2l8 2.2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <span>Trips</span>
+      </button>
+      <button type="button" role="tab" data-tab="mail" aria-selected="false">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.8 7.2l8.2 6 8.2-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Mail</span>
+        <b id="mail-badge" class="tab-badge" hidden></b>
+      </button>
+    </nav>
+
+    <!-- Floating bits that get moved into today's canvas when used -->
+    <div id="add-menu" class="pop" hidden>
+      <button type="button" data-add="text">✏️ Note</button>
+      <button type="button" data-add="photo">📷 Photo</button>
+    </div>
+
+    <div id="toolbar" class="pop" hidden>
+      <button type="button" data-act="edit" aria-label="Edit text">✏️</button>
+      <button type="button" data-act="view" aria-label="View photo">⤢</button>
+      <button type="button" data-act="smaller" aria-label="Smaller">−</button>
+      <button type="button" data-act="bigger" aria-label="Bigger">+</button>
+      <button type="button" data-act="delete" aria-label="Delete" class="danger">🗑</button>
+    </div>
+
+    <input id="file-input" type="file" accept="image/*" hidden />
+    <div id="toast" role="status" hidden></div>
+  </section>
+
+  <!-- Note editor -->
+  <dialog id="editor">
+    <form id="editor-form">
+      <textarea id="editor-text" rows="4" maxlength="2000" placeholder="Write something…"></textarea>
+      <div class="editor-actions">
+        <button type="button" id="editor-cancel">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Trip: create / edit -->
+  <dialog id="trip-dialog" class="sheet">
+    <form id="trip-form">
+      <h2 id="trip-dialog-title">New trip</h2>
+      <label class="field">Name
+        <input name="tname" type="text" maxlength="80" required placeholder="Lisbon" />
+      </label>
+      <label class="field">Destination
+        <input name="tdest" type="text" maxlength="120" placeholder="Lisbon, Portugal" />
+      </label>
+      <div class="field-row">
+        <label class="field">From <input name="tstart" type="date" required /></label>
+        <label class="field">To <input name="tend" type="date" required /></label>
+      </div>
+      <div class="sheet-actions">
+        <button type="button" id="trip-delete" class="ghost danger-text">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Trip: plan item / idea -->
+  <dialog id="entry-dialog" class="sheet">
+    <form id="entry-form">
+      <h2 id="entry-dialog-title">Add</h2>
+      <div class="field-row">
+        <label class="field">Type
+          <select name="ekind">
+            <option value="flight">✈️ Flight</option>
+            <option value="stay">🏨 Stay</option>
+            <option value="activity">🎟 Activity</option>
+            <option value="food">🍽 Food</option>
+            <option value="transport">🚆 Transport</option>
+            <option value="place">📍 Place</option>
+            <option value="other">📝 Other</option>
+          </select>
+        </label>
+        <label class="field">Time <input name="etime" type="time" /></label>
+      </div>
+      <label class="field">Title
+        <input name="etitle" type="text" maxlength="200" required placeholder="Dinner at…" />
+      </label>
+      <label class="field">Day <select name="eday"></select></label>
+      <label class="field">Place / address
+        <div class="field-inline">
+          <input name="eplace" type="text" maxlength="300" placeholder="Name or address" />
+          <button type="button" id="entry-find" class="small">Find</button>
+        </div>
+      </label>
+      <div class="pin-status">
+        <span id="entry-pin" class="muted"></span>
+        <button type="button" id="entry-unpin" class="ghost small">Remove pin</button>
+      </div>
+      <label class="field">Link <input name="eurl" type="url" inputmode="url" maxlength="2000" placeholder="https://…" /></label>
+      <label class="field">Booking ref <input name="econf" type="text" maxlength="120" placeholder="Confirmation number" /></label>
+      <label class="field">Notes <textarea name="enotes" rows="3" maxlength="4000"></textarea></label>
+      <div class="sheet-actions">
+        <button type="button" id="entry-delete" class="ghost danger-text">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Trip: expense -->
+  <dialog id="expense-dialog" class="sheet">
+    <form id="expense-form">
+      <h2 id="expense-dialog-title">Add expense</h2>
+      <label class="field">What for
+        <input name="xnote" type="text" maxlength="200" placeholder="Dinner, tickets…" />
+      </label>
+      <div class="field-row">
+        <label class="field">Amount <input name="xamount" type="text" inputmode="decimal" required placeholder="0.00" /></label>
+        <label class="field">Currency
+          <select name="xcur"><option value="CHF">CHF</option><option value="USD">USD</option></select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">Paid by <select name="xpaid"></select></label>
+        <label class="field">Date <input name="xdate" type="date" /></label>
+      </div>
+      <label class="check-field"><input name="xsettle" type="checkbox" /> This is a pay-back (settle up), not a shared cost</label>
+      <div class="sheet-actions">
+        <button type="button" id="expense-delete" class="ghost danger-text">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Mail: write a postcard -->
+  <dialog id="pc-compose" class="sheet compose">
+    <form id="pc-form">
+      <div class="compose-head">
+        <h2 id="pc-compose-title">Postcard</h2>
+        <button type="button" id="pc-cancel" class="icon-btn small" aria-label="Close (keeps your draft)">✕</button>
+      </div>
+      <div id="pc-preview"></div>
+      <div id="pc-sides" class="seg-toggle center-toggle" role="tablist">
+        <button type="button" data-side="front">Front</button>
+        <button type="button" data-side="back">Back</button>
+      </div>
+      <div class="side-row">
+        <button type="button" id="pc-photo" class="small">📷 Add photo</button>
+        <button type="button" id="pc-photo-remove" class="ghost small danger-text" hidden>Remove photo</button>
+      </div>
+      <textarea id="pc-text" rows="3" class="hand-input"></textarea>
+      <div id="pc-swatches" class="swatches"></div>
+      <div class="field-label">Stamp</div>
+      <div id="pc-stamps" class="stamp-picker"></div>
+      <p class="muted small-note">The post takes 2 to 15 days, usually about a week. Nobody knows exactly when it will arrive.</p>
+      <div class="sheet-actions">
+        <button type="button" id="pc-discard" class="ghost danger-text">Discard</button>
+        <span class="spacer"></span>
+        <button type="submit" id="pc-send" class="primary">Post it 📮</button>
+      </div>
+    </form>
+  </dialog>
+  <input id="pc-file" type="file" accept="image/*" hidden />
+
+  <!-- Mail: read a postcard -->
+  <dialog id="pc-viewer">
+    <button type="button" id="pc-viewer-close" class="icon-btn" aria-label="Close">✕</button>
+    <div class="viewer-body">
+      <div id="pc-viewer-card" class="viewer-card"></div>
+      <p id="pc-viewer-meta"></p>
+      <p class="viewer-hint">Tap the card to flip it over</p>
+    </div>
+  </dialog>
+
+  <!-- Full-size photo viewer -->
+  <dialog id="lightbox">
+    <button type="button" id="lightbox-close" class="icon-btn" aria-label="Close">✕</button>
+    <img id="lightbox-img" alt="" />
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

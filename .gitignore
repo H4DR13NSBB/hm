@@ -1,0 +1,7 @@
+# Contains your emails
+supabase/add-members.sql
+# Wrangler local state
+cloudflare/.wrangler/
+node_modules/
+# Cloudflare token
+cloudflare/.cloudflare-token
