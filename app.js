@@ -975,7 +975,14 @@ $("tabbar").addEventListener("click", (e) => {
   if (tab) showTab(tab);
 });
 const lists = createLists({ sb, getMe: () => me, colorOf, toast, openEditor });
-const trips = createTrips({ sb, getMe: () => me, getMembers: () => memberList, colorOf, toast });
+// Google Maps short links -> full URL (a browser can't follow the redirect itself)
+async function resolveMapsLink(url) {
+  if (useR2) return (await r2("POST", "/resolve", JSON.stringify({ url }), { "Content-Type": "application/json" })).url;
+  const { data, error } = await sb.functions.invoke("resolve-maps-link", { body: { url } });
+  if (error) throw error;
+  return data.url;
+}
+const trips = createTrips({ sb, getMe: () => me, getMembers: () => memberList, colorOf, toast, resolveMapsLink });
 const mail = createMail({ sb, getMe: () => me, getMembers: () => memberList, toast, photos, compressImage });
 
 let savedTab = "board";

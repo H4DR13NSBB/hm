@@ -116,7 +116,7 @@ function geocode(query, near) {
 }
 
 // =============================================================================
-export function createTrips({ sb, getMe, getMembers, colorOf, toast }) {
+export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMapsLink }) {
   const trips = new Map();
   const entries = new Map();
   const expenses = new Map();
@@ -714,9 +714,9 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast }) {
       let host = "";
       try { host = new URL(shared.url).hostname; } catch {}
       if (/goo\.gl$/i.test(host)) {
-        // short link: needs the resolve-maps-link function on Supabase
-        const { data, error } = await sb.functions.invoke("resolve-maps-link", { body: { url: shared.url } });
-        if (!error && data?.url) info = infoFromMapsUrl(data.url);
+        // short link: expanded server side (photos Worker, or Supabase function)
+        const full = await resolveMapsLink(shared.url).catch(() => null);
+        if (full) info = infoFromMapsUrl(full);
       }
       const title = shared.title ?? info.title ?? info.query ?? "";
       const draft = {

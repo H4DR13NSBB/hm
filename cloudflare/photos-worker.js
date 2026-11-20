@@ -8,6 +8,7 @@
 //   DELETE /o/<user_id>/<id>.jpg     delete (own folder only)         Bearer token
 //   POST   /sign  {paths:[...]}      -> {urls:{path:url}, expires}    Bearer token
 //   GET    /p/<path>?exp=..&sig=..   the photo itself (signed link, no token)
+//   POST   /resolve {url}            -> {url}  expand a Google Maps short link  Bearer token
 //
 // Settings (see wrangler.toml):
 //   SUPABASE_URL      var     https://<ref>.supabase.co
@@ -45,6 +46,11 @@ export default {
           urls[p] = `${url.origin}/p/${p}?exp=${expires}&sig=${await sign(env, `${p}:${expires}`)}`;
         }
         return json({ urls, expires }, 200, cors);
+      }
+
+      if (req.method === "POST" && url.pathname === "/resolve") {
+        const { url: link } = await req.json();
+        return json(await resolveMapsLink(String(link)), 200, cors);
       }
 
       if (url.pathname.startsWith("/o/")) {
@@ -93,6 +99,29 @@ async function view(url, env) {
       "etag": obj.httpEtag,
     },
   });
+}
+
+// ---------- Google Maps links ----------
+// Short links (maps.app.goo.gl/...) redirect to the full URL with the place's
+// name and coordinates; a browser can't follow that itself (CORS). Only Google
+// hosts are fetched, so this can't be used to reach arbitrary sites.
+const MAPS_HOST = /^(maps\.app\.goo\.gl|goo\.gl|(www\.|maps\.)?google\.[a-z.]{2,6}|consent\.google\.[a-z.]{2,6})$/i;
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+
+async function resolveMapsLink(link) {
+  let current = new URL(link);
+  for (let hop = 0; hop < 8; hop++) {
+    if (current.protocol !== "https:" || !MAPS_HOST.test(current.hostname)) throw new Error("Not a Google Maps link");
+    // EU cookie-consent interstitial: the real destination is in ?continue=
+    const next = current.searchParams.get("continue");
+    if (/^consent\./i.test(current.hostname) && next) { current = new URL(next); continue; }
+    const res = await fetch(current, { redirect: "manual", headers: { "user-agent": UA, "accept-language": "en" } });
+    const location = res.headers.get("location");
+    await res.body?.cancel();
+    if (res.status >= 300 && res.status < 400 && location) { current = new URL(location, current); continue; }
+    break;
+  }
+  return { url: current.toString() };
 }
 
 // ---------- auth ----------
