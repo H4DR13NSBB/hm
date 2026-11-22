@@ -849,7 +849,8 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 .editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ---------- drawing pad ---------- */
-#draw { display: grid; gap: 12px; }
+/* a column, so the pad gives up height and the buttons always stay on screen */
+#draw { display: flex; flex-direction: column; gap: 12px; }
 #draw:not([open]) { display: none; }
 .draw-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .draw-colors, .draw-sizes { display: flex; gap: 6px; }
@@ -865,12 +866,14 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 .draw-sizes i { width: var(--d); height: var(--d); border-radius: 50%; background: var(--text); }
 .draw-colors [aria-checked="true"] { box-shadow: 0 0 0 2px var(--text); }
 .draw-sizes [aria-checked="true"] { border-color: var(--text); border-width: 2px; }
-#draw .sheet-actions { gap: 6px; }
+#draw .sheet-actions { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 #draw .sheet-actions button { white-space: nowrap; padding-inline: 14px; }
 #draw-pad {
   width: 100%;
   aspect-ratio: 4 / 3;
   max-height: 60dvh;
+  flex: 0 1 auto;
+  min-height: 140px;
   border-radius: 14px;
   border: 1px dashed var(--border);
   background: var(--today);
