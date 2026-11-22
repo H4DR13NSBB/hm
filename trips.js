@@ -20,7 +20,9 @@ export const KINDS = {
 // These have a departure and an arrival; everything else just a duration
 const TRAVEL = new Set(["flight", "train", "transport"]);
 const CURRENCIES = ["USD", "CHF"];
-const SEGMENTS = ["plan", "ideas", "map", "packing", "money"];
+const SEGMENTS = ["plan", "day", "ideas", "map", "packing", "money"];
+// Timetable: pixels per hour
+const HOUR_PX = 56;
 // Card gradients to pick from, as hues: rose, coral, amber, lime, green, teal, blue, purple
 const HUES = [345, 15, 35, 75, 130, 175, 215, 270];
 // Older trips without a picked colour keep the one derived from their id
@@ -179,6 +181,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
   let segment = "plan";
   let channel = null, clockTimer = null;
   let map = null, mapLayer = null, mapFittedFor = null, leafletPromise = null;
+  let ttDay = null; // day shown in the timetable
 
   let savedSeg = null;
   try { savedSeg = localStorage.getItem("duo-trip-seg"); } catch {}
@@ -211,7 +214,10 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
       .subscribe();
     // Keep "Happening now / Next up" on the trips list current
     clearInterval(clockTimer);
-    clockTimer = setInterval(() => { if (!trips.has(currentId)) renderHome(); }, 60_000);
+    clockTimer = setInterval(() => {
+      if (!trips.has(currentId)) renderHome();
+      else if (segment === "day") render(); // move the "now" line
+    }, 60_000);
   }
 
   function stop() {
@@ -355,6 +361,11 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
 
     const body = $("trip-body");
     if (segment === "plan") body.replaceChildren(...renderPlan(t));
+    else if (segment === "day") {
+      const top = body.scrollTop;
+      body.replaceChildren(...renderTimetable(t));
+      body.scrollTop = top;
+    }
     else if (segment === "ideas") body.replaceChildren(...renderIdeas(t));
     else if (segment === "packing") body.replaceChildren(...renderPacking(t));
     else if (segment === "money") body.replaceChildren(...renderMoney(t));
@@ -383,6 +394,202 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
       out.push(sec);
     }
     return out;
+  }
+
+  // ----- Timetable (one day on an hour grid) -----
+  function renderTimetable(t) {
+    const days = tripDays(t);
+    if (!days.length) return [el("p", "muted center pad", tr("No dates yet. Edit the trip to set them, or collect ideas in the meantime."))];
+    if (!days.includes(ttDay)) ttDay = days.includes(localToday()) ? localToday() : days[0];
+    const day = ttDay;
+    const out = [];
+
+    // Day picker
+    const strip = el("nav", "tt-days");
+    days.forEach((d, i) => {
+      const b = el("button", "tt-day" + (d === localToday() ? " today" : ""));
+      b.type = "button";
+      b.setAttribute("aria-selected", String(d === day));
+      b.append(el("b", null, tr("Day {n}", { n: i + 1 })), el("span", null, fmt(d, { weekday: "short", day: "numeric" })));
+      b.addEventListener("click", () => { ttDay = d; render(); });
+      strip.append(b);
+    });
+    out.push(strip);
+    // Keep the picked day in view once the strip is on the page
+    requestAnimationFrame(() => {
+      const b = strip.querySelector('[aria-selected="true"]');
+      if (b) strip.scrollLeft = b.offsetLeft - (strip.clientWidth - b.offsetWidth) / 2;
+    });
+
+    const head = el("div", "tt-head");
+    head.append(el("h3", null, fmtDay(day)));
+    const ics = el("button", "small", tr("📅 Export to calendar"));
+    ics.type = "button";
+    ics.addEventListener("click", () => exportCalendar(t));
+    head.append(ics, addButton(tr("Add to this day"), () => openEntry({ trip_id: t.id, day, kind: "activity" })));
+    out.push(head);
+
+    const mine = entriesOf(t.id);
+    // Things with a day but no time
+    const loose = mine.filter((e) => e.day === day && !e.time).sort(byTime);
+    if (loose.length) {
+      const box = el("div", "tt-anytime");
+      box.append(el("span", "tt-anytime-label muted", tr("Any time")));
+      for (const e of loose) {
+        const chip = el("button", "tt-chip", `${KINDS[e.kind]?.icon ?? "📝"} ${e.title}`);
+        chip.type = "button";
+        chip.addEventListener("click", () => openEntry(e));
+        box.append(chip);
+      }
+      out.push(box);
+    }
+
+    // Timed things on this day, plus anything running over from the day before
+    const dayStart = daysBetween("1970-01-01", day) * 1440;
+    const blocks = [];
+    for (const e of mine) {
+      if (e.day !== day && e.day !== addDays(day, -1)) continue;
+      const s = spanOf(e);
+      if (!s) continue;
+      let end = s.end > s.start ? s.end : s.start + 60; // no duration: show an hour
+      // A flight ends at its arrival time on the arrival clock
+      if (TRAVEL.has(e.kind) && e.tz_shift_min) end = Math.max(end + e.tz_shift_min, s.start + 30);
+      if (e.day !== day && end <= dayStart) continue;
+      const a = Math.max(s.start, dayStart), b = Math.min(end, dayStart + 1440);
+      if (b <= a) continue;
+      blocks.push({ e, a: a - dayStart, b: b - dayStart, cont: s.start < dayStart, open: s.end === s.start });
+    }
+    blocks.sort((x, y) => x.a - y.a || y.b - x.b);
+    // Side by side when they overlap: each group of overlapping blocks shares the width
+    let group = [], groupEnd = -1;
+    const flush = () => { const n = Math.max(...group.map((g) => g.lane)) + 1; group.forEach((g) => (g.lanes = n)); group = []; };
+    for (const bl of blocks) {
+      if (bl.a >= groupEnd && group.length) flush();
+      const used = new Set(group.filter((g) => g.b > bl.a).map((g) => g.lane));
+      bl.lane = 0;
+      while (used.has(bl.lane)) bl.lane++;
+      group.push(bl);
+      groupEnd = Math.max(groupEnd, bl.b);
+    }
+    if (group.length) flush();
+
+    const isToday = day === localToday();
+    const nowMin = isToday ? nowMinutes() - dayStart : null;
+    const first = Math.min(8 * 60, ...blocks.map((b) => b.a), ...(isToday ? [nowMin] : []));
+    const last = Math.max(22 * 60, ...blocks.map((b) => b.b), ...(isToday ? [nowMin + 30] : []));
+    const h0 = Math.floor(first / 60), h1 = Math.min(24, Math.ceil(last / 60));
+    const y = (min) => ((min - h0 * 60) / 60) * HOUR_PX;
+
+    const grid = el("div", "tt-grid");
+    grid.style.height = `${(h1 - h0) * HOUR_PX}px`;
+    for (let h = h0; h <= h1; h++) {
+      const line = el("div", "tt-hour");
+      line.style.top = `${y(h * 60)}px`;
+      line.append(el("span", null, h < 24 ? clock(h * 60) : ""));
+      grid.append(line);
+    }
+    const lanes = el("div", "tt-lanes");
+    // Tapping an empty slot adds something at that half hour
+    lanes.addEventListener("click", (ev) => {
+      if (ev.target !== lanes) return;
+      const min = h0 * 60 + Math.floor((ev.offsetY / HOUR_PX) * 2) * 30;
+      openEntry({ trip_id: t.id, day, kind: "activity", time: clock(Math.min(min, 1410)) });
+    });
+    for (const bl of blocks) {
+      const { e } = bl;
+      const c = el("div", "tt-block" + (bl.open ? " open" : "") + (bl.cont ? " cont" : ""));
+      c.tabIndex = 0;
+      c.setAttribute("role", "button");
+      c.style.top = `${y(bl.a) + 1}px`;
+      c.style.height = `${Math.max(y(bl.b) - y(bl.a) - 2, 24)}px`;
+      c.style.left = `${(bl.lane / bl.lanes) * 100}%`;
+      c.style.width = `calc(${100 / bl.lanes}% - 4px)`;
+      c.style.setProperty("--hue", hueOf(t));
+      if (isToday && bl.a <= nowMin && nowMin < bl.b) c.classList.add("live");
+      const travel = TRAVEL.has(e.kind);
+      let time = bl.cont ? "…" : e.time.slice(0, 5);
+      if (travel && e.end_time) time += ` → ${e.end_time.slice(0, 5)}`;
+      else if (!bl.open) time += `–${clock(toMin(e.time) + e.duration_min)}`;
+      const title = el("div", "tt-title");
+      title.append(el("span", "tt-icon", KINDS[e.kind]?.icon ?? "📝"), document.createTextNode(e.title));
+      c.append(title, el("div", "tt-time", [time, e.place].filter(Boolean).join(" · ")));
+      c.addEventListener("click", () => openEntry(e));
+      c.addEventListener("keydown", (ev) => { if (ev.key === "Enter") openEntry(e); });
+      lanes.append(c);
+    }
+    grid.append(lanes);
+    if (isToday && nowMin >= h0 * 60 && nowMin <= h1 * 60) {
+      const now = el("div", "tt-now");
+      now.style.top = `${y(nowMin)}px`;
+      grid.append(now);
+    }
+    out.push(grid);
+    if (!blocks.length && !loose.length) out.push(el("p", "muted center small-note", tr("Nothing planned yet. Tap an hour to add something.")));
+    return out;
+  }
+
+  // ----- Calendar export (.ics) -----
+  function exportCalendar(t) {
+    const list = entriesOf(t.id).filter((e) => e.day).sort((a, b) => a.day.localeCompare(b.day) || byTime(a, b));
+    const esc = (s) => String(s).replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/([,;])/g, "\\$1");
+    const ymd = (d) => d.replaceAll("-", "");
+    // Times are "floating": they stay on the local clock wherever the phone is,
+    // which is how the plan is written (local times at each place).
+    const at = (minutes) => `${ymd(addDays("1970-01-01", Math.floor(minutes / 1440)))}T${clock(minutes).replace(":", "")}00`;
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+    const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Duo//Trips//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", `X-WR-CALNAME:${esc(t.name)}`];
+    const event = (uid, props) => lines.push("BEGIN:VEVENT", `UID:${uid}`, `DTSTAMP:${stamp}`, ...props, "END:VEVENT");
+    event(`duo-trip-${t.id}@duo`, [
+      `DTSTART;VALUE=DATE:${ymd(t.start_date)}`, `DTEND;VALUE=DATE:${ymd(addDays(t.end_date, 1))}`,
+      `SUMMARY:${esc(`${t.name}${t.destination ? " · " + t.destination : ""}`)}`, "TRANSP:TRANSPARENT",
+    ]);
+    for (const e of list) {
+      const props = [];
+      const s = spanOf(e);
+      if (!s) {
+        props.push(`DTSTART;VALUE=DATE:${ymd(e.day)}`, `DTEND;VALUE=DATE:${ymd(addDays(e.day, 1))}`, "TRANSP:TRANSPARENT");
+      } else {
+        let end = s.end > s.start ? s.end : s.start + 60;
+        // A flight's arrival is on the arrival clock
+        if (TRAVEL.has(e.kind) && e.tz_shift_min) end += e.tz_shift_min;
+        if (end <= s.start) end = s.start + 30;
+        props.push(`DTSTART:${at(s.start)}`, `DTEND:${at(end)}`);
+      }
+      props.push(`SUMMARY:${esc(`${KINDS[e.kind]?.icon ?? ""} ${e.title}`.trim())}`);
+      if (e.place) props.push(`LOCATION:${esc(e.place)}`);
+      const desc = [e.confirmation ? tr("Ref {x}", { x: e.confirmation }) : null, e.notes, e.url].filter(Boolean).join("\n");
+      if (desc) props.push(`DESCRIPTION:${esc(desc)}`);
+      if (e.url) props.push(`URL:${e.url}`);
+      if (e.lat != null && e.lng != null) props.push(`GEO:${e.lat};${e.lng}`);
+      event(`duo-entry-${e.id}@duo`, props);
+    }
+    lines.push("END:VCALENDAR");
+    const text = lines.map(fold).join("\r\n") + "\r\n";
+    const name = `${t.name.replace(/[^\p{L}\p{N} _-]+/gu, "").trim() || "trip"}.ics`;
+    const url = URL.createObjectURL(new Blob([text], { type: "text/calendar" }));
+    const a = el("a");
+    a.href = url;
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    toast(tr("{n} events exported. Open the file to add them to your calendar.", { n: list.length + 1 }));
+  }
+  /** iCalendar lines are at most 75 bytes; longer ones go on in the next line after a space. */
+  function fold(line) {
+    const enc = new TextEncoder();
+    if (enc.encode(line).length <= 75) return line;
+    const parts = [];
+    let cur = "", size = 0;
+    for (const ch of line) {
+      const n = enc.encode(ch).length;
+      if (size + n > (parts.length ? 74 : 75)) { parts.push(cur); cur = ""; size = 0; }
+      cur += ch;
+      size += n;
+    }
+    parts.push(cur);
+    return parts.join("\r\n ");
   }
 
   // ----- Ideas -----
