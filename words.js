@@ -1,16 +1,25 @@
 // =============================================================================
-// Word of the day (top of the Games tab): a French word and its translation.
-// You both get the same word each day (picked from the date), unless you
-// already know it. "I knew this one" sets it aside and rolls another.
-// Known words are kept per person on this device. Saving adds the word to a
-// shared "French words" list in the Lists tab; pinning puts it on today's board.
+// Word of the day (top of the Games tab): a word and its English translation,
+// in the language each of you picks in Settings (French by default). Anyone
+// learning the same language gets the same word each day (picked from the
+// date), unless they already know it. "I knew this one" sets it aside and
+// rolls another. The language and known words are kept per person on this
+// device. Saving adds the word to a shared "<Language> words" list in the Lists
+// tab; pinning puts it on today's board.
 // =============================================================================
 
-import { WORDS } from "./words-data.js";
 import { tr } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
-const LIST_NAME = "French words";
+
+// Decks are [word, English, reading?]; only Japanese has a reading.
+const DECKS = {
+  fr: { name: "French", flag: "🇫🇷", voice: "fr-FR", done: "Bravo !", load: () => import("./words-data.js") },
+  nl: { name: "Dutch", flag: "🇳🇱", voice: "nl-NL", done: "Goed zo!", load: () => import("./words-nl.js") },
+  de: { name: "German", flag: "🇩🇪", voice: "de-DE", done: "Super!", load: () => import("./words-de.js") },
+  it: { name: "Italian", flag: "🇮🇹", voice: "it-IT", done: "Bravo!", load: () => import("./words-it.js") },
+  ja: { name: "Japanese", flag: "🇯🇵", voice: "ja-JP", done: "すごい！", load: () => import("./words-ja.js") },
+};
 
 /** FNV-1a, so the day's word is the same on both phones. */
 function hash(s) {
@@ -29,8 +38,20 @@ function hash(s) {
 export function createWords({ sb, getMe, getToday, toast, pinNote }) {
   // { day, idx, known: [idx], saved: [idx] }
   let state = null;
+  let code = "fr";
+  let WORDS = [];
+  const deck = () => DECKS[code];
 
-  const key = () => `duo-word-${getMe()?.id}`;
+  const langKey = () => `duo-word-lang-${getMe()?.id}`;
+  // French keeps the key from before there was a choice
+  const key = () => `duo-word-${getMe()?.id}${code === "fr" ? "" : `-${code}`}`;
+  async function loadDeck() {
+    let saved = null;
+    try { saved = localStorage.getItem(langKey()); } catch {}
+    code = DECKS[saved] ? saved : "fr";
+    WORDS = (await deck().load()).WORDS;
+    if ($("wd-lang")) $("wd-lang").value = code;
+  }
   function loadState() {
     state = null;
     try { state = JSON.parse(localStorage.getItem(key())); } catch {}
@@ -59,9 +80,18 @@ export function createWords({ sb, getMe, getToday, toast, pinNote }) {
   }
 
   // ---------- lifecycle ----------
-  function start() {
+  async function start() {
+    await loadDeck();
     loadState();
     render();
+  }
+
+  async function setLanguage(c) {
+    try { localStorage.setItem(langKey(), c); } catch {}
+    if (!state) return;
+    await loadDeck();
+    loadState();
+    render(true);
   }
 
   function stop() {
@@ -85,7 +115,11 @@ export function createWords({ sb, getMe, getToday, toast, pinNote }) {
     if (!state) return;
     const i = current();
     const done = i == null;
-    $("wd-fr").textContent = done ? "Bravo !" : WORDS[i][0];
+    $("wd-label").textContent = `${deck().flag} ${tr("Word of the day")}`;
+    $("wd-fr").lang = code;
+    $("wd-fr").textContent = done ? deck().done : WORDS[i][0];
+    $("wd-reading").hidden = done || !WORDS[i][2];
+    $("wd-reading").textContent = done ? "" : WORDS[i][2] || "";
     $("wd-en").textContent = done ? tr("You know all {n} words 🎉", { n: WORDS.length }) : WORDS[i][1];
     $("wd-known").textContent = state.known.length ? tr("{n} known", { n: state.known.length }) : "";
     $("wd-speak").hidden = done || !("speechSynthesis" in window);
@@ -115,7 +149,9 @@ export function createWords({ sb, getMe, getToday, toast, pinNote }) {
   async function save() {
     const i = current();
     if (i == null) return;
-    const body = `${WORDS[i][0]} — ${WORDS[i][1]}`;
+    const [word, en, reading] = WORDS[i];
+    const body = `${word}${reading ? ` (${reading})` : ""} — ${en}`;
+    const LIST_NAME = `${deck().name} words`;
     $("wd-save").disabled = true;
     try {
       const { data: found, error: e1 } = await sb.from("lists").select("*").eq("name", LIST_NAME);
@@ -145,7 +181,8 @@ export function createWords({ sb, getMe, getToday, toast, pinNote }) {
   async function pin() {
     const i = current();
     if (i == null) return;
-    if (await pinNote(`🇫🇷 ${WORDS[i][0]} = ${WORDS[i][1]}`)) toast(tr("It's on today's board 📌"));
+    const [word, en, reading] = WORDS[i];
+    if (await pinNote(`${deck().flag} ${word}${reading ? ` (${reading})` : ""} = ${en}`)) toast(tr("It's on today's board 📌"));
   }
 
   function speak() {
@@ -154,7 +191,7 @@ export function createWords({ sb, getMe, getToday, toast, pinNote }) {
     speechSynthesis.cancel();
     // say "l'eau", not "l'eau (f)"
     const u = new SpeechSynthesisUtterance(WORDS[i][0].replace(/\s*\(.*?\)/g, ""));
-    u.lang = "fr-FR";
+    u.lang = deck().voice;
     u.rate = 0.85;
     speechSynthesis.speak(u);
   }
@@ -163,6 +200,7 @@ export function createWords({ sb, getMe, getToday, toast, pinNote }) {
   $("wd-save").addEventListener("click", save);
   $("wd-pin").addEventListener("click", pin);
   $("wd-speak").addEventListener("click", speak);
+  $("wd-lang")?.addEventListener("change", (e) => setLanguage(e.target.value));
 
   // the day can turn over while the app is open
   return { start, stop, render: () => state && render() };

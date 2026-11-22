@@ -1559,6 +1559,7 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 .wd-label { font-weight: 600; color: var(--muted); }
 .wd-word { margin: 6px 0 12px; }
 .wd-fr { display: flex; align-items: center; gap: 4px; margin: 0; font-size: 1.6rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.wd-reading { margin: 2px 0 0; font-size: .95rem; }
 .wd-en { margin: 2px 0 0; color: var(--muted); }
 .wd-word.roll { animation: wd-roll .3s ease-out; }
 @keyframes wd-roll { from { opacity: 0; transform: translateY(8px); } }

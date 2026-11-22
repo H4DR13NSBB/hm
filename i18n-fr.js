@@ -369,7 +369,7 @@ export const FR = {
   "Couldn't load questions: ": "Impossible de charger les questions : ",
 
   // ---------- games ----------
-  "French word of the day": "Mot français du jour",
+  "Word of the day": "Mot du jour",
   "🇫🇷 Word of the day": "🇫🇷 Mot du jour",
   "Say it": "Prononcer",
   "I knew this one": "Je le connaissais",
@@ -537,6 +537,14 @@ export const FR = {
   "Settings": "Réglages",
   "Notifications": "Notifications",
   "Language": "Langue",
+  "App language": "Langue de l'app",
+  "Which language you're learning, just for you. The translation is in English.": "La langue que tu apprends, rien que pour toi. La traduction est en anglais.",
+  "Word of the day language": "Langue du mot du jour",
+  "🇫🇷 French": "🇫🇷 Français",
+  "🇳🇱 Dutch": "🇳🇱 Néerlandais",
+  "🇩🇪 German": "🇩🇪 Allemand",
+  "🇮🇹 Italian": "🇮🇹 Italien",
+  "🇯🇵 Japanese": "🇯🇵 Japonais",
   "🔔 Turn on for this phone": "🔔 Activer sur ce téléphone",
   "Send a test": "Envoyer un test",
   "Turn off for this phone": "Désactiver sur ce téléphone",

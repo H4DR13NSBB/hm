@@ -278,14 +278,15 @@
           <h2>Games</h2>
         </div>
         <!-- Word of the day (words.js) -->
-        <section id="wd" class="wd" aria-label="French word of the day" hidden>
+        <section id="wd" class="wd" aria-label="Word of the day" hidden>
           <div class="wd-top">
-            <span class="wd-label">🇫🇷 Word of the day</span>
+            <span id="wd-label" class="wd-label">🇫🇷 Word of the day</span>
             <span id="wd-known" class="muted"></span>
           </div>
           <div id="wd-word" class="wd-word">
             <p class="wd-fr"><span id="wd-fr" lang="fr"></span>
               <button type="button" id="wd-speak" class="icon-btn small" aria-label="Say it"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></p>
+            <p id="wd-reading" class="wd-reading" hidden></p>
             <p id="wd-en" class="wd-en"></p>
           </div>
           <div class="wd-actions">
@@ -755,7 +756,18 @@
       </div>
     </section>
     <section class="set-section">
-      <h3>Language</h3>
+      <h3>Word of the day</h3>
+      <p class="muted">Which language you're learning, just for you. The translation is in English.</p>
+      <select id="wd-lang" aria-label="Word of the day language">
+        <option value="fr">🇫🇷 French</option>
+        <option value="nl">🇳🇱 Dutch</option>
+        <option value="de">🇩🇪 German</option>
+        <option value="it">🇮🇹 Italian</option>
+        <option value="ja">🇯🇵 Japanese</option>
+      </select>
+    </section>
+    <section class="set-section">
+      <h3>App language</h3>
       <div class="set-buttons"><button type="button" class="lang-btn small">FR</button></div>
     </section>
     <section class="set-section">
