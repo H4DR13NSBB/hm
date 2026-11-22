@@ -63,7 +63,14 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
       .channel("sketches")
       .on("postgres_changes", { event: "*", schema: "public", table: "sketches" }, (p) => {
         if (p.eventType === "DELETE") rows.delete(p.old.id);
-        else rows.set(p.new.id, p.new);
+        else {
+          // Live updates can leave out big columns: the strokes when they didn't
+          // change (Postgres keeps them aside as "TOAST"), or everything long when
+          // the row is too big to send. Keep what we have and fetch what's missing.
+          const r = { ...rows.get(p.new.id), ...p.new };
+          rows.set(r.id, r);
+          if (!complete(r)) refetch(r.id);
+        }
         render();
       })
       .subscribe();
@@ -88,11 +95,18 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
     render();
   }
 
+  async function refetch(id) {
+    const { data } = await sb.from("sketches").select("*").eq("id", id).maybeSingle();
+    if (data) rows.set(data.id, data);
+    render();
+  }
+
   // ---------- helpers ----------
   const meId = () => getMe()?.id;
   const other = () => getMembers().find((m) => m.user_id !== meId());
   const nameOf = (id) => getMembers().find((m) => m.user_id === id)?.display_name ?? "?";
-  const newest = () => [...rows.values()].sort((a, b) => b.id - a.id);
+  const complete = (r) => Array.isArray(r.strokes) && Array.isArray(r.guesses); // not waiting on refetch
+  const newest = () => [...rows.values()].filter(complete).sort((a, b) => b.id - a.id);
   const toGuess = () => newest().filter((r) => r.status === "guessing" && r.guesser_id === meId());
   const myTurns = () => (missing ? 0 : toGuess().length);
   const tries = (r) => r.guesses.length;
@@ -128,7 +142,7 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
 
     if ($("sk-round").open) {
       const r = rows.get(openId);
-      if (r) renderRound(r, false); else $("sk-round").close();
+      if (r && complete(r)) renderRound(r, false); else if (!r) $("sk-round").close();
     }
   }
 
@@ -290,7 +304,7 @@ export function createSketch({ sb, getMe, getMembers, colorOf, toast, openDraw, 
     e.preventDefault();
     const r = rows.get(openId);
     const guess = $("sk-guess-input").value.trim().slice(0, 40);
-    if (!r || r.status !== "guessing" || !guess) return;
+    if (!r || !complete(r) || r.status !== "guessing" || !guess) return;
     $("sk-guess-input").value = "";
     const right = isRight(guess, r.word);
     if (!right && r.guesses.some((g) => norm(g) === norm(guess))) return toast(tr("You tried that one already."));
