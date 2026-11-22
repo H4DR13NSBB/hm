@@ -555,13 +555,24 @@ button.small { min-height: 36px; padding: 0 14px; font-size: .9rem; }
   border: 3px solid var(--accent);
   box-shadow: 0 3px 10px rgba(0, 0, 0, .3);
   font-size: 17px;
-  position: relative;
+  box-sizing: border-box;
+  /* no position here: Leaflet's .leaflet-marker-icon already makes it absolute */
 }
 .pin.idea { border-style: dashed; border-color: #6b6b6b; }
+.pin span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+}
+/* day badge centred on the circle's border at the top-right (45°) */
 .pin b {
   position: absolute;
-  top: -8px;
-  right: -8px;
+  left: calc(50% + 12px);
+  top: calc(50% - 12px);
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
   min-width: 18px;
   height: 18px;
   border-radius: 9px;
