@@ -24,6 +24,7 @@ duo/
 ├── drawing.js              painting pad strokes (board drawings + Draw & Guess)
 ├── media.js                recording + playing voice notes and videos
 ├── gifts.js                gift boxes (advent calendar, birthdays, anniversary)
+├── push.js                 notifications (in Settings)
 ├── mock-supabase.js        in-browser demo backend (used until config.js has real keys)
 ├── config.js               your Supabase URL + anon key
 ├── manifest.webmanifest    Home Screen app settings
@@ -96,6 +97,37 @@ duo/
   or taken back. Arrived cards show a **New** badge; the sender sees when it arrived and whether it's been read.
   In demo mode, a **Deliver everything now** button skips the wait.
 
+### Notifications
+
+The ⚙️ button in the top bar opens **Settings**: notifications, language and signing out. Tap **Turn on for this phone**
+(on iPhone this only works in the Home Screen app, iOS 16.4 or later), then pick what you want to hear about:
+
+- **New on the board**: batched, at most once every 10 minutes
+- **Postcards**: when one arrives
+- **Games**: your turn, game over, and Draw & Guess (a new drawing for you, or yours was guessed)
+- **Gift boxes**: at 8:00 (board timezone) on the day one is waiting for you
+- **Trips: what's next**: 3 h before a flight, 1 h before a train or transport, 30 min before anything else with a time
+- **Trips: arriving soon**: 20 min before a flight, train or transport gets in
+
+The choices are per person (all your phones). Board and game notifications are skipped while you have Duo open.
+Trip times are read on the phone's own clock, like the Trips tab, so they're right wherever you are
+(each phone's timezone is updated when you open Duo).
+
+How it works: the `duo-photos` Worker runs every minute (cron), asks Supabase what's due (`push_due()` in `schema.sql`,
+which keeps bookmarks so nothing is sent twice), and sends standard Web Push messages; `sw.js` shows them and opens
+the right tab when tapped. Signing out stops notifications to that phone. Not available in demo mode or on Live Server.
+
+Setup, once: rerun `supabase/schema.sql`, then in `cloudflare/`:
+
+```
+npx wrangler secret put VAPID_PRIVATE_KEY     # contents of cloudflare/.vapid-private-key (gitignored)
+npx wrangler secret put SUPABASE_SECRET_KEY   # Supabase → Project Settings → API Keys → secret key
+npx wrangler@4 deploy
+```
+
+The public half of the push key pair is `PUSH_PUBLIC_KEY` in `config.js` and `VAPID_PUBLIC_KEY` in `wrangler.toml`
+(they must match). To watch it work: `npx wrangler tail` in `cloudflare/`.
+
 ### Google Maps links
 
 Full Google Maps links (`google.com/maps/place/...`) work everywhere. Short share links (`maps.app.goo.gl/...`) need the
@@ -158,3 +190,4 @@ private behind signed links that expire after about an hour. Set `PHOTOS_URL` in
 Leave it empty to keep using Supabase Storage. All storage code in the app is in the `photos` object in `app.js`.
 
 Free Supabase projects pause after ~7 days without activity. Resume from the dashboard.
+(With notifications set up, the Worker checks in every minute, which keeps it awake.)

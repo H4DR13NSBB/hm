@@ -5,3 +5,5 @@ cloudflare/.wrangler/
 node_modules/
 # Cloudflare token
 cloudflare/.cloudflare-token
+# Push notifications private key (VAPID_PRIVATE_KEY)
+cloudflare/.vapid-private-key

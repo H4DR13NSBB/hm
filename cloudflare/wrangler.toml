@@ -10,8 +10,17 @@ bucket_name = "duo-photos"
 SUPABASE_URL = "https://ygpxcijdnoexqtzlhohn.supabase.co"
 # Your GitHub Pages origin (no path), plus Live Server for testing.
 ALLOWED_ORIGINS = "https://h4dr13nsbb.github.io,http://127.0.0.1:5500"
+# Push notifications: the public half of the key pair (same as PUSH_PUBLIC_KEY in config.js)
+VAPID_PUBLIC_KEY = "BBukXTpfT_JN7E-AT971GlJFLRl4vmqWlTGOlUGHbfyHLCcS0sStJBbBENc1pRRr7TI4588p8QO1gNwJeYTr6Q0"
+VAPID_SUBJECT = "https://h4dr13nsbb.github.io/hm/"
+
+# Sends the notifications that are due, every minute
+[triggers]
+crons = ["* * * * *"]
 
 # Secrets (not in this file), set with:
 #   npx wrangler secret put MEMBERS       -> "<user id 1>,<user id 2>"
 #   npx wrangler secret put SIGNING_KEY   -> any long random string
 #   npx wrangler secret put GIPHY_KEY     -> GIPHY API key (GIF & sticker search)
+#   npx wrangler secret put VAPID_PRIVATE_KEY   -> private half of the push key pair ("d", base64url)
+#   npx wrangler secret put SUPABASE_SECRET_KEY -> Supabase > Project Settings > API Keys > secret key

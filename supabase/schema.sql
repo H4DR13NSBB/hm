@@ -714,3 +714,242 @@ begin
   alter publication supabase_realtime add table public.gifts;
 exception when duplicate_object then null;
 end $$;
+
+-- ---------------------------------------------------------------------
+-- Notifications: push messages to your phones, sent by the duo-photos
+-- Worker (cloudflare/photos-worker.js). Every minute it calls push_due(),
+-- which works out what's new for each of you and moves its bookmarks on,
+-- so nothing is sent twice. What each of you wants is in push_prefs.
+--   board        new things on the board (at most every 10 min, batched)
+--   games        your turn, game over, Draw & Guess
+--   mail         a postcard arrived
+--   gifts        a box waiting for you today, at 8:00 (board timezone)
+--   trip_next    the next step of a trip: 3 h before a flight, 1 h before
+--                a train or transport, 30 min before anything else
+--   trip_arrive  20 min before a flight, train or transport arrives
+-- Trip times are on the local clock, read in the phone's own timezone.
+-- Board and game pushes are skipped while you have Duo open.
+-- ---------------------------------------------------------------------
+create table if not exists public.push_subscriptions (
+  endpoint   text primary key check (endpoint ~ '^https://' and char_length(endpoint) <= 1000),
+  user_id    uuid not null references public.members(user_id) on delete cascade,
+  p256dh     text not null check (char_length(p256dh) <= 200),
+  auth       text not null check (char_length(auth) <= 100),
+  timezone   text check (timezone is null or now() at time zone timezone is not null),
+  lang       text not null default 'en' check (lang in ('en', 'fr')),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.push_prefs (
+  user_id     uuid primary key default auth.uid() references public.members(user_id) on delete cascade,
+  board       boolean not null default true,
+  games       boolean not null default true,
+  mail        boolean not null default true,
+  gifts       boolean not null default true,
+  trip_next   boolean not null default true,
+  trip_arrive boolean not null default true,
+  active_at   timestamptz                       -- last seen with Duo open
+);
+
+-- Where push_due() got to, per person and topic (only the server reads it)
+create table if not exists public.push_cursors (
+  user_id uuid not null references public.members(user_id) on delete cascade,
+  topic   text not null,
+  at      timestamptz not null,
+  primary key (user_id, topic)
+);
+
+alter table public.push_subscriptions enable row level security;
+alter table public.push_prefs enable row level security;
+alter table public.push_cursors enable row level security;
+
+drop policy if exists "see own phones" on public.push_subscriptions;
+create policy "see own phones" on public.push_subscriptions for select to authenticated
+  using (user_id = auth.uid());
+drop policy if exists "remove own phones" on public.push_subscriptions;
+create policy "remove own phones" on public.push_subscriptions for delete to authenticated
+  using (user_id = auth.uid());
+-- adding goes through save_push_subscription()
+
+drop policy if exists "manage own push prefs" on public.push_prefs;
+create policy "manage own push prefs" on public.push_prefs for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid() and public.is_member());
+
+-- Register this phone (or refresh it). A phone belongs to whoever signed in last.
+create or replace function public.save_push_subscription(
+  p_endpoint text, p_p256dh text, p_auth text, p_timezone text, p_lang text
+)
+returns void
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  if not public.is_member() then raise exception 'Not a member'; end if;
+  delete from public.push_subscriptions where endpoint = p_endpoint and user_id <> auth.uid();
+  insert into public.push_subscriptions (endpoint, user_id, p256dh, auth, timezone, lang)
+    values (p_endpoint, auth.uid(), p_p256dh, p_auth,
+            case when exists (select 1 from pg_catalog.pg_timezone_names where name = p_timezone) then p_timezone end,
+            case when p_lang = 'fr' then 'fr' else 'en' end)
+  on conflict (endpoint) do update
+    set p256dh = excluded.p256dh, auth = excluded.auth, timezone = excluded.timezone,
+        lang = excluded.lang, updated_at = now();
+  insert into public.push_prefs (user_id) values (auth.uid()) on conflict do nothing;
+end $$;
+
+-- Duo is open on screen (called every minute while it is)
+create or replace function public.push_seen()
+returns void
+language sql security definer set search_path = ''
+as $$
+  insert into public.push_prefs (user_id, active_at)
+  select auth.uid(), now() where public.is_member()
+  on conflict (user_id) do update set active_at = now();
+$$;
+
+-- Moves a bookmark of push_due() on
+create or replace function public.push_mark(uid uuid, t text, ts timestamptz)
+returns void
+language sql security definer set search_path = ''
+as $$
+  insert into public.push_cursors (user_id, topic, at) values (uid, t, ts)
+  on conflict (user_id, topic) do update set at = excluded.at;
+$$;
+
+-- What to send now: one row per notification, for the Worker to word and send.
+create or replace function public.push_due()
+returns table (user_id uuid, topic text, tag text, data jsonb)
+language plpgsql security definer set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  t_now   timestamptz := now();
+  t_rows  timestamptz := now() - interval '20 seconds'; -- a row saved this instant may not be visible yet
+  bz      text := coalesce((select s.timezone from public.settings s limit 1), 'UTC');
+  b_today date := (now() at time zone bz)::date;
+  at8     timestamptz := (b_today + time '08:00') at time zone bz;
+  m       record;
+  r       record;
+  other   text;
+  active  boolean;
+  uz      text;
+  c       timestamptz;
+  n       int;
+  k       text;
+begin
+  for m in
+    select p.* from public.push_prefs p
+     where exists (select 1 from public.push_subscriptions s where s.user_id = p.user_id)
+  loop
+    select mb.display_name into other from public.members mb where mb.user_id <> m.user_id limit 1;
+    active := coalesce(m.active_at > t_now - interval '2 minutes', false);
+
+    -- Board: batched, at most every 10 minutes. While waiting, the bookmark stays put.
+    c := greatest(coalesce((select pc.at from public.push_cursors pc where pc.user_id = m.user_id and pc.topic = 'board'), t_rows), t_rows - interval '1 hour');
+    if not m.board then
+      perform public.push_mark(m.user_id, 'board', t_rows);
+    elsif coalesce((select pc.at from public.push_cursors pc where pc.user_id = m.user_id and pc.topic = 'board_sent'), '-infinity') < t_now - interval '10 minutes' then
+      select count(*), min(i.kind) into n, k
+        from public.items i where i.author_id <> m.user_id and i.created_at > c and i.created_at <= t_rows;
+      if n > 0 and not active then
+        user_id := m.user_id; topic := 'board'; tag := 'board';
+        data := jsonb_build_object('from', other, 'n', n, 'kind', case when n = 1 then k end);
+        return next;
+        perform public.push_mark(m.user_id, 'board_sent', t_now);
+      end if;
+      perform public.push_mark(m.user_id, 'board', t_rows);
+    end if;
+
+    -- Games: the other one just played (your turn, or the game's over), or started one with you first
+    c := greatest(coalesce((select pc.at from public.push_cursors pc where pc.user_id = m.user_id and pc.topic = 'games'), t_rows), t_rows - interval '1 hour');
+    if m.games and not active then
+      for r in
+        select g.id, g.kind, g.winner, g.moves from public.games g
+         where g.next_id = m.user_id and g.updated_at > c and g.updated_at <= t_rows
+           and not (g.moves = 0 and g.created_by = m.user_id)
+      loop
+        user_id := m.user_id; topic := 'games'; tag := 'game-' || r.id;
+        data := jsonb_build_object('from', other, 'game', r.kind, 'winner', r.winner, 'new', r.moves = 0);
+        return next;
+      end loop;
+      for r in
+        select sk.id, sk.word, sk.status, sk.guesser_id = m.user_id as for_me from public.sketches sk
+         where (sk.guesser_id = m.user_id and sk.created_at > c and sk.created_at <= t_rows)
+            or (sk.drawer_id = m.user_id and sk.status <> 'guessing' and sk.finished_at > c and sk.finished_at <= t_rows)
+      loop
+        user_id := m.user_id; topic := 'games'; tag := 'sketch-' || r.id;
+        data := jsonb_build_object('from', other, 'sketch', case when r.for_me then 'new' else r.status end,
+          'word', case when not r.for_me then r.word end);
+        return next;
+      end loop;
+    end if;
+    perform public.push_mark(m.user_id, 'games', t_rows);
+
+    -- Mail: postcards whose delivery time has just passed
+    c := greatest(coalesce((select pc.at from public.push_cursors pc where pc.user_id = m.user_id and pc.topic = 'mail'), t_now), t_now - interval '3 days');
+    if m.mail then
+      select count(*) into n from public.postcards p
+       where p.to_id = m.user_id and p.delivers_at > c and p.delivers_at <= t_now;
+      if n > 0 then
+        user_id := m.user_id; topic := 'mail'; tag := 'mail';
+        data := jsonb_build_object('from', other, 'n', n);
+        return next;
+      end if;
+    end if;
+    perform public.push_mark(m.user_id, 'mail', t_now);
+
+    -- Gifts: from 8:00 on their day (and any box filled for today after that)
+    if t_now >= at8 then
+      c := coalesce((select pc.at from public.push_cursors pc where pc.user_id = m.user_id and pc.topic = 'gifts'), '-infinity');
+      if m.gifts then
+        select count(*), max(g.occasion) into n, k from public.gifts g
+         where g.to_id = m.user_id and g.day = b_today and g.opened_at is null
+           and (c < at8 or g.created_at > c);
+        if n > 0 then
+          user_id := m.user_id; topic := 'gifts'; tag := 'gift-' || b_today;
+          data := jsonb_build_object('from', other, 'occasion', k, 'day', extract(day from b_today)::int);
+          return next;
+        end if;
+      end if;
+      perform public.push_mark(m.user_id, 'gifts', t_now);
+    end if;
+
+    -- Trips: times are on the local clock, so read them in this person's phone timezone
+    uz := coalesce((select s.timezone from public.push_subscriptions s
+                     where s.user_id = m.user_id and s.timezone is not null
+                     order by s.updated_at desc limit 1), bz);
+    c := greatest(coalesce((select pc.at from public.push_cursors pc where pc.user_id = m.user_id and pc.topic = 'trips'), t_now), t_now - interval '20 minutes');
+    if m.trip_next or m.trip_arrive then
+      for r in
+        select e.id, e.kind, e.title, e.place, e.time, e.end_time, e.duration_min, e.tz_shift_min, t.name as trip,
+               (e.day + e.time) at time zone uz as starts,
+               case e.kind when 'flight' then 180 when 'train' then 60 when 'transport' then 60 else 30 end as lead
+          from public.trip_entries e join public.trips t on t.id = e.trip_id
+         where e.time is not null
+           and e.day between (t_now at time zone uz)::date - 2 and (t_now at time zone uz)::date + 1
+      loop
+        if m.trip_next and r.starts - make_interval(mins => r.lead) > c
+           and r.starts - make_interval(mins => r.lead) <= t_now then
+          user_id := m.user_id; topic := 'trip_next'; tag := 'trip-' || r.id;
+          data := jsonb_build_object('kind', r.kind, 'title', r.title, 'place', r.place, 'trip', r.trip,
+            'time', left(r.time::text, 5), 'mins', r.lead);
+          return next;
+        end if;
+        if m.trip_arrive and r.kind in ('flight', 'train', 'transport') and r.duration_min > 20
+           and r.starts + make_interval(mins => r.duration_min - 20) > c
+           and r.starts + make_interval(mins => r.duration_min - 20) <= t_now then
+          user_id := m.user_id; topic := 'trip_arrive'; tag := 'trip-' || r.id;
+          data := jsonb_build_object('kind', r.kind, 'title', r.title, 'place', r.place, 'trip', r.trip,
+            'time', left(coalesce(r.end_time, r.time + make_interval(mins => r.duration_min + coalesce(r.tz_shift_min, 0)))::text, 5),
+            'mins', 20);
+          return next;
+        end if;
+      end loop;
+    end if;
+    perform public.push_mark(m.user_id, 'trips', t_now);
+  end loop;
+end $$;
+
+-- Only the Worker (with the secret key) may run these
+revoke execute on function public.push_due() from public, anon, authenticated;
+revoke execute on function public.push_mark(uuid, text, timestamptz) from public, anon, authenticated;
+grant execute on function public.push_due() to service_role;
+grant execute on function public.push_mark(uuid, text, timestamptz) to service_role;

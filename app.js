@@ -10,6 +10,7 @@ import { paint, renderPNG } from "./drawing.js";
 import { createRecorder, pickFile, togglePlay, wirePlayer, fmtDuration, stopAll } from "./media.js";
 import { createGifts } from "./gifts.js";
 import { createWords } from "./words.js";
+import { createPush } from "./push.js";
 import { tr, locale, lang, setLang, translatePage } from "./i18n.js";
 
 const { SUPABASE_URL, SUPABASE_ANON_KEY } = config;
@@ -347,6 +348,7 @@ async function handleSession(session) {
   questions.start();
   games.start();
   words.start();
+  push.start();
 }
 
 function teardown() {
@@ -358,6 +360,8 @@ function teardown() {
   questions.stop();
   games.stop();
   words.stop();
+  push.stop();
+  if ($("settings").open) $("settings").close();
   if (channel) sb.removeChannel(channel);
   channel = null;
   me = null;
@@ -408,14 +412,16 @@ $("login-form").addEventListener("submit", async (e) => {
 });
 
 document.querySelectorAll(".signout-btn").forEach((b) =>
-  b.addEventListener("click", () => {
-    if (confirm(tr("Sign out?"))) sb.auth.signOut();
+  b.addEventListener("click", async () => {
+    if (!confirm(tr("Sign out?"))) return;
+    await push.forget(); // this phone stops getting the notifications
+    sb.auth.signOut();
   })
 );
 
 // English / French: the button shows the language you'd switch to
 document.querySelectorAll(".lang-btn").forEach((b) => {
-  b.textContent = lang === "fr" ? "EN" : "FR";
+  b.textContent = b.closest("#settings") ? (lang === "fr" ? "English" : "Français") : lang === "fr" ? "EN" : "FR";
   b.setAttribute("aria-label", lang === "fr" ? "Switch to English" : "Passer en français");
   b.addEventListener("click", () => setLang(lang === "fr" ? "en" : "fr"));
 });
@@ -1465,6 +1471,15 @@ const sketch = createSketch({
 const games = createGames({ sb, getMe: () => me, getMembers: () => memberList, colorOf, toast, sketch });
 const words = createWords({ sb, getMe: () => me, getToday: () => today, toast, pinNote });
 const mail = createMail({ sb, getMe: () => me, getMembers: () => memberList, toast, photos, compressImage });
+const push = createPush({
+  sb, getMe: () => me, toast, demo: DEMO, isIOS, isStandalone,
+  publicKey: isLocal ? "" : config.PUSH_PUBLIC_KEY || "", // no service worker locally
+  callWorker: useR2 ? (route, body) => r2("POST", route, JSON.stringify(body), { "Content-Type": "application/json" }) : null,
+});
+$("settings-btn").addEventListener("click", () => {
+  push.render();
+  $("settings").showModal();
+});
 const recorder = createRecorder();
 // What a gift box can hold. Each resolves to the thing picked, or null.
 // (Cancelling the drawing pad or GIF picker just leaves the box as it was.)
@@ -1496,7 +1511,16 @@ const gifts = createGifts({
 
 let savedTab = "board";
 try { savedTab = localStorage.getItem("duo-tab") ?? "board"; } catch {}
+// Opened from a notification: go to its tab
+const linkedTab = new URLSearchParams(location.search).get("tab");
+if (linkedTab) {
+  savedTab = linkedTab;
+  history.replaceState(null, "", location.pathname);
+}
 showTab(savedTab);
+navigator.serviceWorker?.addEventListener("message", (e) => {
+  if (e.data?.type === "open-tab") showTab(e.data.tab);
+});
 
 // Any "Cancel" button in a form sheet closes its dialog
 document.querySelectorAll("[data-close]").forEach((b) =>

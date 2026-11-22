@@ -10,13 +10,21 @@
 //   GET    /p/<path>?exp=..&sig=..   the photo itself (signed link, no token)
 //   POST   /resolve {url}            -> {url}  expand a Google Maps short link  Bearer token
 //   GET    /gifs?type=gifs|stickers&q=..&offset=..  -> {results, next}  GIPHY search  Bearer token
+//   POST   /push/test                -> {sent}  a test notification to your own phones  Bearer token
+//
+// Every minute (cron, see wrangler.toml) it also sends the push notifications
+// that Supabase's push_due() says are due.
 //
 // Settings (see wrangler.toml):
 //   SUPABASE_URL      var     https://<ref>.supabase.co
 //   ALLOWED_ORIGINS   var     comma-separated site origins allowed to call the API
+//   VAPID_PUBLIC_KEY  var     push public key (also in the site's config.js)
+//   VAPID_SUBJECT     var     a link or mailto: for push services to reach you
 //   MEMBERS           secret  comma-separated Supabase user ids of the two of you
 //   SIGNING_KEY       secret  any long random string (signs the view links)
 //   GIPHY_KEY         secret  GIPHY API key, for GIF & sticker search
+//   VAPID_PRIVATE_KEY secret  push private key ("d" of the key pair, base64url)
+//   SUPABASE_SECRET_KEY secret  Supabase secret (service role) key, to read what's due
 //   JWT_SECRET        secret  optional: only for projects still on the legacy HS256 JWT secret
 
 const MAX_BYTES = 5 * 1024 * 1024;        // photos
@@ -62,6 +70,16 @@ export default {
         return json(await searchGifs(url.searchParams, env), 200, cors);
       }
 
+      if (req.method === "POST" && url.pathname === "/push/test") {
+        const { lang } = await req.json().catch(() => ({}));
+        const subs = await supabase(env, "GET", `/push_subscriptions?select=endpoint,p256dh,auth,lang&user_id=eq.${user}`);
+        let sent = 0;
+        for (const s of subs) {
+          if (await push(env, s, testMessage(lang === "fr" ? "fr" : s.lang), 300)) sent++;
+        }
+        return json({ sent }, 200, cors);
+      }
+
       if (url.pathname.startsWith("/o/")) {
         const path = decodeURIComponent(url.pathname.slice(3));
         if (!PATH_RE.test(path)) return json({ error: "Bad path" }, 400, cors);
@@ -90,6 +108,10 @@ export default {
     } catch (err) {
       return json({ error: "Server error" }, 500, cors);
     }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(sendDue(env));
   },
 };
 
@@ -184,6 +206,180 @@ async function resolveMapsLink(link) {
   }
   return { url: current.toString() };
 }
+
+// ---------- push notifications ----------
+// Supabase decides what's due (push_due() in schema.sql, which also makes sure
+// nothing goes out twice); this words it in each phone's language and sends it.
+async function sendDue(env) {
+  if (!env.SUPABASE_SECRET_KEY || !env.VAPID_PRIVATE_KEY) return;
+  const due = await supabase(env, "POST", "/rpc/push_due", {});
+  if (!due.length) return;
+  const users = [...new Set(due.map((d) => d.user_id))];
+  const subs = await supabase(env, "GET", `/push_subscriptions?select=endpoint,user_id,p256dh,auth,lang&user_id=in.(${users.join(",")})`);
+  await Promise.all(due.flatMap((d) => subs.filter((s) => s.user_id === d.user_id).map((s) =>
+    push(env, s, message(d, s.lang), TTL[d.topic] ?? 3600).catch((err) => console.log("push failed", err.message)))));
+}
+
+// How long a push may wait for a phone that's offline before it's dropped (seconds)
+const TTL = { board: 6 * 3600, games: 6 * 3600, mail: 86400, gifts: 86400, trip_next: 3600, trip_arrive: 1800 };
+const TAB = { board: "board", games: "games", mail: "mail", gifts: "board", trip_next: "trips", trip_arrive: "trips" };
+
+const WORDS = {
+  en: {
+    board: "New on the board", boardOne: "{from} added {what}.", boardMany: "{from} added {n} things today.",
+    what: { text: "a note", photo: "a picture", gif: "a GIF", sticker: "a sticker", audio: "a voice note", video: "a video" },
+    games: { tictactoe: "Tic-tac-toe", connect4: "Connect Four", sketch: "Draw & Guess" },
+    yourTurn: "Your turn", played: "{from} played in {game}.", started: "{from} started a game. Your move!",
+    draw: "It's a draw!", won: "{from} won this one.",
+    sketchNew: "{from} drew something for you. Can you guess it?",
+    guessed: "{from} guessed your drawing: “{word}” ✓", gave_up: "{from} gave up on “{word}”.",
+    mail: "You've got mail 📬", mailOne: "A postcard from {from} just arrived.", mailMany: "{n} postcards from {from} just arrived.",
+    advent: "🎁 Advent box {day}", birthday: "🎂 Happy birthday!", anniversary: "💞 Happy anniversary!",
+    gift: "{from} left you a gift box. Open it on the board.",
+    next: "At {time}, in {lead}", arrive: "Arriving at {time}, in about {lead}",
+    test: "Notifications work 🎉",
+  },
+  fr: {
+    board: "Du nouveau sur le tableau", boardOne: "{from} a ajouté {what}.", boardMany: "{from} a ajouté {n} choses aujourd'hui.",
+    what: { text: "une note", photo: "une image", gif: "un GIF", sticker: "un sticker", audio: "un message vocal", video: "une vidéo" },
+    games: { tictactoe: "Morpion", connect4: "Puissance 4", sketch: "Dessine et devine" },
+    yourTurn: "À toi de jouer", played: "{from} a joué au {game}.", started: "{from} a lancé une partie. À toi de jouer !",
+    draw: "Match nul !", won: "{from} a gagné cette partie.",
+    sketchNew: "{from} t'a dessiné quelque chose. Tu devines ?",
+    guessed: "{from} a deviné ton dessin : « {word} » ✓", gave_up: "{from} a abandonné « {word} ».",
+    mail: "Tu as du courrier 📬", mailOne: "Une carte postale de {from} vient d'arriver.", mailMany: "{n} cartes postales de {from} viennent d'arriver.",
+    advent: "🎁 Calendrier de l'Avent, jour {day}", birthday: "🎂 Joyeux anniversaire !", anniversary: "💞 Joyeux anniversaire à vous deux !",
+    gift: "{from} t'a laissé une boîte cadeau. Ouvre-la sur le tableau.",
+    next: "À {time}, dans {lead}", arrive: "Arrivée à {time}, dans {lead} environ",
+    test: "Les notifications marchent 🎉",
+  },
+};
+const ICONS = { flight: "✈️", train: "🚆", transport: "🚌", stay: "🏨", activity: "🎟", food: "🍽", place: "📍", other: "📝" };
+const fill = (s, vars) => s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] ?? m));
+const lead = (min) => (min >= 60 ? `${min / 60} h` : `${min} min`);
+
+/** The notification for one row of push_due(), in English or French. */
+function message({ topic, tag, data: d }, lang) {
+  const w = WORDS[lang] || WORDS.en;
+  let title, body;
+  if (topic === "board") {
+    title = w.board;
+    body = d.n === 1 ? fill(w.boardOne, { from: d.from, what: w.what[d.kind] ?? w.what.text }) : fill(w.boardMany, d);
+  } else if (topic === "games" && d.sketch) {
+    title = w.games.sketch;
+    body = fill(d.sketch === "new" ? w.sketchNew : w[d.sketch], d);
+  } else if (topic === "games") {
+    const game = w.games[d.game];
+    title = d.winner || d.new ? game : w.yourTurn;
+    body = fill(d.winner === "draw" ? w.draw : d.winner ? w.won : d.new ? w.started : w.played, { from: d.from, game });
+  } else if (topic === "mail") {
+    title = w.mail;
+    body = fill(d.n === 1 ? w.mailOne : w.mailMany, d);
+  } else if (topic === "gifts") {
+    title = fill(w[d.occasion] ?? w.advent, d);
+    body = fill(w.gift, d);
+  } else {
+    title = `${ICONS[d.kind] ?? "📍"} ${d.title}`;
+    body = fill(topic === "trip_next" ? w.next : w.arrive, { time: d.time, lead: lead(d.mins) });
+    if (topic === "trip_next" && d.place) body += ` · ${d.place}`;
+  }
+  return { title, body, tag, tab: TAB[topic] };
+}
+const testMessage = (lang) => ({ title: "Duo", body: (WORDS[lang] || WORDS.en).test, tag: "test", tab: "board" });
+
+/** Talks to Supabase as the server (the secret key skips the row rules). */
+async function supabase(env, method, path, body) {
+  const key = env.SUPABASE_SECRET_KEY;
+  const headers = { apikey: key, "content-type": "application/json" };
+  if (!key.startsWith("sb_")) headers.authorization = `Bearer ${key}`; // legacy service_role JWT
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body && JSON.stringify(body) });
+  if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
+  return res.status === 204 ? null : res.json();
+}
+
+/**
+ * Sends one Web Push message (RFC 8291 encryption, RFC 8292 VAPID).
+ * Returns true if the push service took it. A phone that's gone away is forgotten.
+ */
+async function push(env, sub, msg, ttl) {
+  const body = await encrypt(sub, new TextEncoder().encode(JSON.stringify(msg)));
+  const res = await fetch(sub.endpoint, {
+    method: "POST",
+    headers: {
+      authorization: await vapidAuth(env, new URL(sub.endpoint).origin),
+      "content-encoding": "aes128gcm",
+      "content-type": "application/octet-stream",
+      ttl: String(ttl),
+      urgency: "high",
+      topic: msg.tag.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32), // a newer push with the same topic replaces one still waiting
+    },
+    body,
+  });
+  if (res.status === 404 || res.status === 410) {
+    await supabase(env, "DELETE", `/push_subscriptions?endpoint=eq.${encodeURIComponent(sub.endpoint)}`);
+  } else if (!res.ok) {
+    console.log("push service said", res.status, await res.text());
+  }
+  return res.ok;
+}
+
+async function encrypt(sub, plaintext) {
+  const uaPublic = b64urlBytes(sub.p256dh);
+  const authSecret = b64urlBytes(sub.auth);
+  const ecdh = { name: "ECDH", namedCurve: "P-256" };
+  const local = await crypto.subtle.generateKey(ecdh, true, ["deriveBits"]);
+  const asPublic = new Uint8Array(await crypto.subtle.exportKey("raw", local.publicKey));
+  const uaKey = await crypto.subtle.importKey("raw", uaPublic, ecdh, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: uaKey }, local.privateKey, 256));
+
+  const ikm = await hkdf(authSecret, shared, concat(utf8("WebPush: info\0"), uaPublic, asPublic), 32);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const cek = await hkdf(salt, ikm, utf8("Content-Encoding: aes128gcm\0"), 16);
+  const nonce = await hkdf(salt, ikm, utf8("Content-Encoding: nonce\0"), 12);
+
+  const key = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);
+  const record = concat(plaintext, new Uint8Array([2])); // 2 = last (and only) record
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, record));
+
+  const header = new Uint8Array(16 + 4 + 1 + asPublic.length);
+  header.set(salt, 0);
+  new DataView(header.buffer).setUint32(16, 4096);
+  header[20] = asPublic.length;
+  header.set(asPublic, 21);
+  return concat(header, cipher);
+}
+
+async function hkdf(salt, ikm, info, length) {
+  const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, key, length * 8));
+}
+
+const vapidCache = new Map(); // push service origin -> { header, exp }
+async function vapidAuth(env, audience) {
+  const now = Math.floor(Date.now() / 1000);
+  const hit = vapidCache.get(audience);
+  if (hit && hit.exp > now + 600) return hit.header;
+  const exp = now + 12 * 3600;
+  const pub = b64urlBytes(env.VAPID_PUBLIC_KEY);
+  const key = await crypto.subtle.importKey("jwk", {
+    kty: "EC", crv: "P-256", d: env.VAPID_PRIVATE_KEY,
+    x: b64url(pub.slice(1, 33)), y: b64url(pub.slice(33, 65)),
+  }, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const unsigned = `${b64url(utf8(JSON.stringify({ typ: "JWT", alg: "ES256" })))}.${b64url(utf8(JSON.stringify({ aud: audience, exp, sub: env.VAPID_SUBJECT })))}`;
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, utf8(unsigned));
+  const header = `vapid t=${unsigned}.${b64url(new Uint8Array(sig))}, k=${env.VAPID_PUBLIC_KEY}`;
+  vapidCache.set(audience, { header, exp });
+  return header;
+}
+
+const utf8 = (s) => new TextEncoder().encode(s);
+function concat(...parts) {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let i = 0;
+  for (const p of parts) { out.set(p, i); i += p.length; }
+  return out;
+}
+const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 // ---------- auth ----------
 const members = (env) => (env.MEMBERS || "").split(",").map((s) => s.trim()).filter(Boolean);
