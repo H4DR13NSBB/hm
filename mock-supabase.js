@@ -226,7 +226,7 @@ function seedTrips(a, b, ago) {
     e(2, 1, s, b, "stay", "Check in: Casa do Alfama", { time: "15:00", place: "Alfama, Lisbon", confirmation: "BK-558213", lat: 38.7118, lng: -9.1300, notes: "Key box code arrives by email the day before." }),
     e(3, 1, addDays(s, 1), a, "activity", "Tram 28 + Castelo de São Jorge", { time: "10:00", place: "Castelo de São Jorge", lat: 38.7139, lng: -9.1335 }),
     e(4, 1, addDays(s, 1), b, "food", "Dinner at Time Out Market", { time: "20:00", place: "Mercado da Ribeira", lat: 38.7071, lng: -9.1458 }),
-    e(5, 1, addDays(s, 2), a, "transport", "Train to Sintra", { time: "09:30", place: "Rossio Station", lat: 38.7142, lng: -9.1410 }),
+    e(5, 1, addDays(s, 2), a, "train", "Train to Sintra", { time: "09:30", place: "Rossio Station", lat: 38.7142, lng: -9.1410 }),
     e(6, 1, null, b, "food", "Pastéis de Belém", { place: "R. de Belém 84-92, Lisbon", lat: 38.6975, lng: -9.2032, url: "https://www.google.com/maps/place/Past%C3%A9is+de+Bel%C3%A9m/@38.6975,-9.2032,17z" }),
     e(7, 1, null, a, "place", "LX Factory", { lat: 38.7037, lng: -9.1785 }),
     e(8, 1, null, b, "place", "Miradouro da Senhora do Monte", { notes: "Sunset spot", lat: 38.7192, lng: -9.1328 }),

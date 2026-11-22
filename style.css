@@ -91,7 +91,7 @@ button.small, .icon-btn.small { font-size: .9rem; }
   border-color: transparent;
   background: transparent;
 }
-.icon-btn.small { width: 32px; height: 32px; min-height: 32px; }
+.icon-btn.small { width: 32px; height: 32px; min-height: 32px; padding: 0; }
 .icon-btn svg, .entry-del svg, #toolbar svg { display: block; }
 
 /* 16px+ font on inputs stops iOS from zooming in on focus */

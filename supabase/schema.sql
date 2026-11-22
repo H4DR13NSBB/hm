@@ -217,7 +217,7 @@ create table if not exists public.trip_entries (
   day          date,                -- null = idea, not scheduled yet
   time         time,
   kind         text not null default 'activity'
-               check (kind in ('flight', 'stay', 'activity', 'food', 'transport', 'place', 'other')),
+               check (kind in ('flight', 'train', 'stay', 'activity', 'food', 'transport', 'place', 'other')),
   title        text not null check (char_length(btrim(title)) between 1 and 200),
   place        text check (char_length(place) <= 300),
   url          text check (char_length(url) <= 2000),
@@ -229,6 +229,9 @@ create table if not exists public.trip_entries (
   created_at   timestamptz not null default now()
 );
 create index if not exists trip_entries_trip_idx on public.trip_entries (trip_id);
+alter table public.trip_entries drop constraint if exists trip_entries_kind_check;
+alter table public.trip_entries add constraint trip_entries_kind_check
+  check (kind in ('flight', 'train', 'stay', 'activity', 'food', 'transport', 'place', 'other'));
 
 create table if not exists public.trip_expenses (
   id           bigint generated always as identity primary key,

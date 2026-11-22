@@ -12,7 +12,8 @@ export const KINDS = {
   stay:      { icon: "🏨", label: tr("Stay") },
   activity:  { icon: "🎟", label: tr("Activity") },
   food:      { icon: "🍽", label: tr("Food") },
-  transport: { icon: "🚆", label: tr("Transport") },
+  train:     { icon: "🚆", label: tr("Train") },
+  transport: { icon: "🚌", label: tr("Transport") },
   place:     { icon: "📍", label: tr("Place") },
   other:     { icon: "📝", label: tr("Other") },
 };
