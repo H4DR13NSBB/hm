@@ -17,6 +17,8 @@ export const KINDS = {
   place:     { icon: "📍", label: tr("Place") },
   other:     { icon: "📝", label: tr("Other") },
 };
+// These have a departure and an arrival; everything else just a duration
+const TRAVEL = new Set(["flight", "train", "transport"]);
 const CURRENCIES = ["USD", "CHF"];
 const SEGMENTS = ["plan", "ideas", "map", "packing", "money"];
 // Card gradients to pick from, as hues: rose, coral, amber, lime, green, teal, blue, purple
@@ -63,6 +65,32 @@ function countdown(t) {
 }
 const money = (cents, cur) =>
   new Intl.NumberFormat(locale, { style: "currency", currency: cur }).format(Math.round(cents) / 100);
+const toMin = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+const clock = (min) => {
+  const m = ((min % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+};
+function fmtDur(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? `${h} h${m ? " " + String(m).padStart(2, "0") : ""}` : `${m} min`;
+}
+/** Departure to arrival, allowing for overnight trips and a time zone change. */
+function travelMinutes(dep, arr, shift) {
+  if (!dep || !arr) return null;
+  let d = toMin(arr) - toMin(dep) - (shift ?? 0);
+  while (d <= 0) d += 1440;
+  return d;
+}
+/** When an entry starts and ends, in minutes on the local clock (null if it has no day or time). */
+function spanOf(e) {
+  if (!e.day || !e.time) return null;
+  const start = daysBetween("1970-01-01", e.day) * 1440 + toMin(e.time);
+  return { start, end: start + (e.duration_min ?? 0) };
+}
+function nowMinutes() {
+  const d = new Date();
+  return daysBetween("1970-01-01", localToday()) * 1440 + d.getHours() * 60 + d.getMinutes();
+}
 const byTime = (a, b) => (a.time ?? "99").localeCompare(b.time ?? "99") || a.created_at.localeCompare(b.created_at);
 function normalizeUrl(s) {
   s = (s ?? "").trim();
@@ -149,7 +177,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
   const packItems = new Map();  // list_items row id -> row
   let currentId = null;
   let segment = "plan";
-  let channel = null;
+  let channel = null, clockTimer = null;
   let map = null, mapLayer = null, mapFittedFor = null, leafletPromise = null;
 
   let savedSeg = null;
@@ -181,11 +209,15 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
         render();
       }))
       .subscribe();
+    // Keep "Happening now / Next up" on the trips list current
+    clearInterval(clockTimer);
+    clockTimer = setInterval(() => { if (!trips.has(currentId)) renderHome(); }, 60_000);
   }
 
   function stop() {
     if (channel) sb.removeChannel(channel);
     channel = null;
+    clearInterval(clockTimer);
     for (const m of [trips, entries, expenses, packLists, packItems]) m.clear();
     currentId = null;
     mapFittedFor = null;
@@ -248,6 +280,40 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     if (past.length) out.push(el("h3", "trips-subhead", tr("Past trips")), ...past.map(card));
     $("trip-cards").replaceChildren(...out);
     $("trips-empty").hidden = all.length > 0;
+    const now = nowCard(all.filter((t) => t.start_date && t.start_date <= today && t.end_date >= today));
+    $("trip-now").replaceChildren(...(now ? [now] : []));
+  }
+
+  /** During a trip: what's happening right now, or else the next thing coming up. */
+  function nowCard(ongoing) {
+    const now = nowMinutes();
+    let active = null, next = null, nextKey = Infinity;
+    for (const t of ongoing) {
+      for (const e of entriesOf(t.id)) {
+        if (!e.day) continue;
+        const s = spanOf(e);
+        if (s && s.start <= now && now < s.end && (!active || s.start > spanOf(active).start)) active = e;
+        // Untimed entries count from the end of their day, as in the plan, and only from tomorrow on
+        const key = s ? s.start : daysBetween("1970-01-01", e.day) * 1440 + 1439.5;
+        if (key > now && (s || e.day > localToday()) && key < nextKey) { next = e; nextKey = key; }
+      }
+    }
+    const e = active ?? next;
+    if (!e) return null;
+    const s = spanOf(e);
+    let when;
+    if (active) when = tr("Until {t}", { t: TRAVEL.has(e.kind) && e.end_time ? e.end_time.slice(0, 5) : clock(s.end) });
+    else if (e.day === localToday()) when = tr("In {d}", { d: fmtDur(s.start - now) });
+    else if (e.day === addDays(localToday(), 1)) when = tr("Tomorrow");
+    else when = fmtDay(e.day);
+    const box = el("section", "trip-now");
+    const head = el("div", "trip-now-head");
+    head.append(el("span", "trip-now-label", active ? tr("Happening now") : tr("Next up")));
+    const more = [ongoing.length > 1 ? trips.get(e.trip_id)?.name : null, when].filter(Boolean).join(" · ");
+    head.append(el("span", "muted", more));
+    box.style.setProperty("--hue", hueOf(trips.get(e.trip_id)));
+    box.append(head, entryCard(e, false, () => { openTrip(e.trip_id); openEntry(e); }));
+    return box;
   }
 
   function card(t) {
@@ -328,17 +394,21 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     return out;
   }
 
-  function entryCard(e, showDay = false) {
+  function entryCard(e, showDay = false, onOpen = null) {
     const c = el("div", "entry-card");
     c.tabIndex = 0;
     c.setAttribute("role", "button");
     c.append(el("span", "entry-icon", KINDS[e.kind]?.icon ?? "📝"));
     const main = el("div", "entry-main");
     const title = el("div", "entry-title");
-    if (e.time) title.append(el("span", "entry-time", e.time.slice(0, 5)));
+    const travel = TRAVEL.has(e.kind);
+    let time = e.time?.slice(0, 5) ?? "";
+    if (travel && e.end_time) time = `${time || "?"} → ${e.end_time.slice(0, 5)}`;
+    else if (time && e.duration_min) time += `–${clock(toMin(time) + e.duration_min)}`;
+    if (time) title.append(el("span", "entry-time", time));
     title.append(document.createTextNode(e.title));
     main.append(title);
-    const sub = [showDay && e.day ? fmtDay(e.day) : null, e.place, e.confirmation ? tr("Ref {x}", { x: e.confirmation }) : null].filter(Boolean);
+    const sub = [showDay && e.day ? fmtDay(e.day) : null, e.duration_min ? "⏱ " + fmtDur(e.duration_min) : null, e.place, e.confirmation ? tr("Ref {x}", { x: e.confirmation }) : null].filter(Boolean);
     if (sub.length) main.append(el("div", "entry-sub", sub.join(" · ")));
     if (e.notes) main.append(el("div", "entry-notes", e.notes));
     if (e.lat == null) main.append(el("div", "entry-nopin", tr("Not on the map")));
@@ -352,7 +422,7 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
       a.addEventListener("click", (ev) => ev.stopPropagation());
       c.append(a);
     }
-    const open = () => openEntry(e);
+    const open = onOpen ?? (() => openEntry(e));
     c.addEventListener("click", open);
     c.addEventListener("keydown", (ev) => { if (ev.key === "Enter") open(); });
     return c;
@@ -660,6 +730,28 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
   let editingEntry = null;
   let draftPin = { lat: null, lng: null, label: "" };
 
+  const ef = $("entry-form").elements;
+  const DURATIONS = Array.from({ length: 24 }, (_, i) => (i + 1) * 30); // 30 min to 12 h
+  ef.edur.replaceChildren(new Option("—", ""), ...DURATIONS.map((m) => new Option(fmtDur(m), m)));
+  const shiftLabel = (h) => `${h > 0 ? "+" : "−"}${Math.abs(h)} h`;
+  ef.etz.replaceChildren(new Option(tr("Same time zone"), "0"),
+    ...Array.from({ length: 26 }, (_, i) => i - 12).filter((h) => h).map((h) => new Option(shiftLabel(h), h * 60)));
+  /** Selects `value`, adding it as an option first if it isn't one (older or odd values). */
+  function pick(select, value, label) {
+    if (![...select.options].some((o) => o.value === String(value))) select.append(new Option(label, value));
+    select.value = String(value);
+  }
+  function updateTravelFields() {
+    const travel = TRAVEL.has(ef.ekind.value);
+    $("entry-time-label").textContent = travel ? tr("Departure") : tr("Time");
+    $("entry-travel").hidden = !travel;
+    $("entry-dur-field").hidden = travel;
+    const d = travel ? travelMinutes(ef.etime.value, ef.eend.value, Number(ef.etz.value)) : null;
+    $("entry-takes").textContent = d ? tr("Takes {d}", { d: fmtDur(d) }) : "";
+    $("entry-takes").hidden = !d;
+  }
+  for (const n of ["ekind", "etime", "eend", "etz"]) ef[n].addEventListener("input", updateTravelFields);
+
   function openEntry(e) {
     editingEntry = e.id ? e : null;
     draftPin = { lat: e.lat ?? null, lng: e.lng ?? null, label: "" };
@@ -672,6 +764,12 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     if (e.day && !days.includes(e.day)) f.eday.append(new Option(fmtDay(e.day), e.day));
     f.eday.value = e.day ?? "";
     f.etime.value = e.time?.slice(0, 5) ?? "";
+    f.eend.value = e.end_time?.slice(0, 5) ?? "";
+    const shift = e.tz_shift_min ?? 0;
+    pick(f.etz, shift, shiftLabel(shift / 60));
+    if (e.duration_min && !TRAVEL.has(e.kind)) pick(f.edur, e.duration_min, fmtDur(e.duration_min));
+    else f.edur.value = "";
+    updateTravelFields();
     f.eplace.value = e.place ?? "";
     f.eurl.value = e.url ?? "";
     f.econf.value = e.confirmation ?? "";
@@ -708,11 +806,15 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
   $("entry-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.target.elements;
+    const travel = TRAVEL.has(f.ekind.value);
     const row = {
       kind: f.ekind.value,
       title: f.etitle.value.trim(),
       day: f.eday.value || null,
       time: f.etime.value || null,
+      end_time: travel ? f.eend.value || null : null,
+      tz_shift_min: travel && f.eend.value ? Number(f.etz.value) : null,
+      duration_min: travel ? travelMinutes(f.etime.value, f.eend.value, Number(f.etz.value)) : Number(f.edur.value) || null,
       place: f.eplace.value.trim() || null,
       url: normalizeUrl(f.eurl.value),
       confirmation: f.econf.value.trim() || null,

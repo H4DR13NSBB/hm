@@ -20,7 +20,7 @@ const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // Table name -> storage key, which columns an update may change, and (for the
 // generic tables) which columns an insert accepts + their defaults.
-const ENTRY_COLS = ["day", "time", "kind", "title", "place", "url", "confirmation", "notes", "lat", "lng"];
+const ENTRY_COLS = ["day", "time", "kind", "title", "place", "url", "confirmation", "notes", "lat", "lng", "end_time", "tz_shift_min", "duration_min"];
 const EXPENSE_COLS = ["kind", "paid_by", "amount_cents", "currency", "note", "spent_on"];
 const TABLES = {
   items:      { key: "duo-demo-items",      editable: ["x", "y", "w", "size", "body"] },
@@ -222,9 +222,9 @@ function seedTrips(a, b, ago) {
     ...TABLES.trip_entries.defaults, id, trip_id, day, kind, title, created_by: by.id, created_at: ago(4000 - id), ...rest,
   });
   save("trip_entries", [
-    e(1, 1, s, a, "flight", "Flight ZRH → LIS", { time: "07:40", place: "Lisbon Airport", confirmation: "LX2084 · K7Q2PX", lat: 38.7742, lng: -9.1342 }),
+    e(1, 1, s, a, "flight", "Flight ZRH → LIS", { time: "07:40", end_time: "09:25", tz_shift_min: -60, duration_min: 165, place: "Lisbon Airport", confirmation: "LX2084 · K7Q2PX", lat: 38.7742, lng: -9.1342 }),
     e(2, 1, s, b, "stay", "Check in: Casa do Alfama", { time: "15:00", place: "Alfama, Lisbon", confirmation: "BK-558213", lat: 38.7118, lng: -9.1300, notes: "Key box code arrives by email the day before." }),
-    e(3, 1, addDays(s, 1), a, "activity", "Tram 28 + Castelo de São Jorge", { time: "10:00", place: "Castelo de São Jorge", lat: 38.7139, lng: -9.1335 }),
+    e(3, 1, addDays(s, 1), a, "activity", "Tram 28 + Castelo de São Jorge", { time: "10:00", duration_min: 180, place: "Castelo de São Jorge", lat: 38.7139, lng: -9.1335 }),
     e(4, 1, addDays(s, 1), b, "food", "Dinner at Time Out Market", { time: "20:00", place: "Mercado da Ribeira", lat: 38.7071, lng: -9.1458 }),
     e(5, 1, addDays(s, 2), a, "train", "Train to Sintra", { time: "09:30", place: "Rossio Station", lat: 38.7142, lng: -9.1410 }),
     e(6, 1, null, b, "food", "Pastéis de Belém", { place: "R. de Belém 84-92, Lisbon", lat: 38.6975, lng: -9.2032, url: "https://www.google.com/maps/place/Past%C3%A9is+de+Bel%C3%A9m/@38.6975,-9.2032,17z" }),

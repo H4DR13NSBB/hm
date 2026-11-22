@@ -247,6 +247,13 @@ create table if not exists public.trip_expenses (
 );
 create index if not exists trip_expenses_trip_idx on public.trip_expenses (trip_id);
 
+-- How long an entry takes. Travel (flight, train, transport): `time` is the departure,
+-- `end_time` the arrival and `tz_shift_min` how far the arrival clock is ahead, and
+-- `duration_min` is worked out from them. Anything else picks a duration.
+alter table public.trip_entries add column if not exists end_time time;
+alter table public.trip_entries add column if not exists tz_shift_min smallint check (tz_shift_min between -1440 and 1440);
+alter table public.trip_entries add column if not exists duration_min smallint check (duration_min between 1 and 2880);
+
 -- Card colour: the hue of its gradient (null = picked from the id)
 alter table public.trips add column if not exists hue smallint check (hue between 0 and 359);
 

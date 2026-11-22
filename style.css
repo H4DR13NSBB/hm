@@ -428,6 +428,11 @@ button.small { min-height: 36px; padding: 0 14px; font-size: .9rem; }
   border-radius: 999px;
   white-space: nowrap;
 }
+#trip-now:not(:empty) { margin-bottom: 16px; }
+.trip-now-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 0 2px 6px; font-size: .85rem; }
+.trip-now-label { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: hsl(var(--hue) 55% 45%); }
+.trip-now .entry-card { margin: 0; border-left: 4px solid hsl(var(--hue) 55% 45%); }
+#entry-takes { margin: -4px 0 0; }
 .trips-subhead { margin: 20px 0 0; font-size: .85rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 
 #trip-detail { flex: 1; min-height: 0; display: flex; flex-direction: column; }

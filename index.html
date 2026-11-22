@@ -129,6 +129,7 @@
           <h2>Trips</h2>
           <button type="button" id="trip-new" class="primary small">+ New trip</button>
         </div>
+        <div id="trip-now"></div>
         <div id="trip-cards"></div>
         <div id="trips-empty" class="placeholder" hidden>
           <div class="placeholder-icon">🧳</div>
@@ -543,8 +544,14 @@
             <option value="other">📝 Other</option>
           </select>
         </label>
-        <label class="field">Time <input name="etime" type="time" /></label>
+        <label class="field"><span id="entry-time-label">Time</span> <input name="etime" type="time" /></label>
       </div>
+      <div id="entry-travel" class="field-row">
+        <label class="field">Arrival <input name="eend" type="time" /></label>
+        <label class="field">Time difference at arrival <select name="etz"></select></label>
+      </div>
+      <p id="entry-takes" class="muted small-note"></p>
+      <label id="entry-dur-field" class="field">Duration <select name="edur"></select></label>
       <label class="field">Title
         <input name="etitle" type="text" maxlength="200" required />
       </label>
