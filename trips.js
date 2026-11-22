@@ -312,7 +312,13 @@ export function createTrips({ sb, getMe, getMembers, colorOf, toast, resolveMaps
     const more = [ongoing.length > 1 ? trips.get(e.trip_id)?.name : null, when].filter(Boolean).join(" · ");
     head.append(el("span", "muted", more));
     box.style.setProperty("--hue", hueOf(trips.get(e.trip_id)));
-    box.append(head, entryCard(e, false, () => { openTrip(e.trip_id); openEntry(e); }));
+    const c = entryCard(e, false, () => { openTrip(e.trip_id); openEntry(e); });
+    // Fill the card as far as we are through it
+    if (active) {
+      c.classList.add("live");
+      c.style.setProperty("--progress", `${Math.round(((now - s.start) / (s.end - s.start)) * 100)}%`);
+    }
+    box.append(head, c);
     return box;
   }
 

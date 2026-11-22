@@ -432,6 +432,9 @@ button.small { min-height: 36px; padding: 0 14px; font-size: .9rem; }
 .trip-now-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 0 2px 6px; font-size: .85rem; }
 .trip-now-label { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: hsl(var(--hue) 55% 45%); }
 .trip-now .entry-card { margin: 0; border-left: 4px solid hsl(var(--hue) 55% 45%); }
+.trip-now .entry-card.live {
+  background: linear-gradient(90deg, hsl(var(--hue) 60% 50% / .16) var(--progress), var(--surface) var(--progress));
+}
 #entry-takes { margin: -4px 0 0; }
 .trips-subhead { margin: 20px 0 0; font-size: .85rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 
