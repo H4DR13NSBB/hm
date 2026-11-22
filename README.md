@@ -20,7 +20,8 @@ duo/
 ├── games.js                Games tab
 ├── sketch.js               Draw & Guess (inside the Games tab)
 ├── words.js                word of the day (top of the Games tab), language picked in Settings
-├── words-data.js           the French deck (words-nl/de/it/ja.js: the others)
+├── words-data.js           the hand-picked French words (words-nl/de/it/ja.js: the others)
+├── words/                  ~3,000 more per language from Wiktionary (made by tools/build-words.mjs)
 ├── drawing.js              painting pad strokes (board drawings + Draw & Guess)
 ├── media.js                recording + playing voice notes and videos
 ├── gifts.js                gift boxes (advent calendar, birthdays, anniversary)
@@ -88,7 +89,11 @@ duo/
   (`words-de.js`), Italian (`words-it.js`) or Japanese (`words-ja.js`, with the kana and rōmaji reading). Anyone on
   the same language gets the same word each day. **I knew this one** sets it aside (for you, on that device) and
   rolls another. **Save** adds it to a shared "French words" (or "Dutch words", …) list in Lists; **Pin** puts it on
-  today's board. Only ever add words at the end of a deck: known words are stored by position.
+  today's board. After the hand-picked words come the ~3,000 most common others in each language, in `words/<lang>.json`
+  (loaded online, then kept for offline). Rebuild those with `node tools/build-words.mjs [fr nl de it ja]`: it streams
+  the Wiktionary extract from [kaikki.org](https://kaikki.org) (CC BY-SA; several GB, nothing is saved) and ranks words
+  by the [FrequencyWords](https://github.com/hermitdave/FrequencyWords) subtitle lists (MIT). Known words are
+  stored by the word itself, so rebuilding doesn't lose anyone's progress.
 
 - **Mail** (`mail.js`): send each other postcards. Each side can have a photo, text or both, on a background
   colour you pick; the back is a classic postcard with your message on the left and a stamp you choose on the right

@@ -36,7 +36,8 @@ function hash(s) {
  * @param deps.pinNote     (text) => Promise<boolean>, puts a note on today's board
  */
 export function createWords({ sb, getMe, getToday, toast, pinNote }) {
-  // { day, idx, known: [idx], saved: [idx] }
+  // { day, idx, known: [idx], saved: [idx] }, stored by word, not position,
+  // so rebuilding the Wiktionary decks doesn't mix them up
   let state = null;
   let code = "fr";
   let WORDS = [];
@@ -49,16 +50,31 @@ export function createWords({ sb, getMe, getToday, toast, pinNote }) {
     let saved = null;
     try { saved = localStorage.getItem(langKey()); } catch {}
     code = DECKS[saved] ? saved : "fr";
-    WORDS = (await deck().load()).WORDS;
     if ($("wd-lang")) $("wd-lang").value = code;
+    // the hand-picked words, then a few thousand common ones from Wiktionary
+    // (words/<code>.json, made by tools/build-words.mjs; needs to be online once)
+    const [hand, more] = await Promise.all([
+      deck().load().then((m) => m.WORDS),
+      fetch(`words/${code}.json`).then((r) => (r.ok ? r.json() : [])).catch(() => []),
+    ]);
+    WORDS = [...hand, ...more];
   }
   function loadState() {
-    state = null;
-    try { state = JSON.parse(localStorage.getItem(key())); } catch {}
-    state = { day: null, idx: null, known: [], saved: [], ...state };
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(key())); } catch {}
+    raw = { day: null, known: [], saved: [], ...raw };
+    const at = new Map(WORDS.map((w, i) => [w[0], i]));
+    // numbers are from before: positions in the hand-picked deck, which comes first
+    const idx = (x) => (typeof x === "number" ? (WORDS[x] ? x : null) : at.get(x) ?? null);
+    const all = (xs) => xs.map(idx).filter((i) => i != null);
+    const today = "word" in raw ? idx(raw.word) : idx(raw.idx ?? null);
+    state = { day: today == null ? null : raw.day, idx: today, known: all(raw.known), saved: all(raw.saved) };
   }
   function saveState() {
-    try { localStorage.setItem(key(), JSON.stringify(state)); } catch {}
+    const word = (i) => WORDS[i][0];
+    const out = { day: state.day, word: state.idx == null ? null : word(state.idx),
+      known: state.known.map(word), saved: state.saved.map(word) };
+    try { localStorage.setItem(key(), JSON.stringify(out)); } catch {}
   }
 
   const isKnown = (i) => state.known.includes(i);
